@@ -1,0 +1,199 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from backend.models.database import SessionLocal
+from backend.models.entities import Material
+from backend.services.pdf_service import extract_text_from_pdf
+from backend.services.ai_question_service import (
+    generate_questions,
+    review_generated_questions,
+    filter_approved_questions,
+    save_generated_questions,
+)
+from backend.models.schemas import (
+    MaterialCreate,
+    MaterialResponse,
+    MaterialTextUpdate,
+    QuestionGenerationRequest,
+    QuestionResponse,
+)
+
+router = APIRouter(prefix="/materials", tags=["Materiais"])
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@router.post(
+    "",
+    response_model=MaterialResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_material(
+    material_data: MaterialCreate,
+    db: Session = Depends(get_db),
+):
+    material = Material(
+        title=material_data.title,
+        type=material_data.type,
+        storage_path=material_data.storage_path,
+    )
+
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+
+    return material
+
+
+@router.get("", response_model=list[MaterialResponse])
+def list_materials(db: Session = Depends(get_db)):
+    statement = select(Material).order_by(Material.created_at.desc())
+    return db.scalars(statement).all()
+
+
+@router.get("/{material_id}", response_model=MaterialResponse)
+def get_material(
+    material_id: UUID,
+    db: Session = Depends(get_db),
+):
+    material = db.get(Material, material_id)
+
+    if material is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material não encontrado.",
+        )
+
+    return material
+
+
+
+@router.patch("/{material_id}/text")
+def update_material_text(
+    material_id: UUID,
+    material_data: MaterialTextUpdate,
+    db: Session = Depends(get_db),
+):
+    material = db.get(Material, material_id)
+
+    if material is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material não encontrado.",
+        )
+
+    material.raw_text = material_data.raw_text
+
+    db.commit()
+    db.refresh(material)
+
+    return {
+        "id": material.id,
+        "title": material.title,
+        "status": "text_updated",
+    }
+
+
+
+@router.post(
+    "/{material_id}/generate-questions",
+    response_model=list[QuestionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_material_questions(
+    material_id: UUID,
+    generation_data: QuestionGenerationRequest,
+    db: Session = Depends(get_db),
+):
+    material = db.get(Material, material_id)
+
+    if material is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material não encontrado.",
+        )
+
+    if not material.raw_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O material ainda não possui texto para análise.",
+        )
+
+    generated_questions = generate_questions(
+        material_title=material.title,
+        raw_text=material.raw_text,
+        number_of_questions=generation_data.number_of_questions,
+    )
+
+    review_set = review_generated_questions(
+        material_title=material.title,
+        raw_text=material.raw_text,
+        generated_questions=generated_questions,
+    )
+
+    approved_questions = filter_approved_questions(
+        generated_questions=generated_questions,
+        review_set=review_set,
+    )
+
+    return save_generated_questions(
+        material_id=material.id,
+        generated_questions=approved_questions,
+        db=db,
+    )
+
+
+
+@router.post(
+    "/upload-pdf",
+    response_model=MaterialResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_pdf(
+    title: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if file.content_type != "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O arquivo enviado precisa ser um PDF.",
+        )
+
+    pdf_bytes = await file.read()
+
+    try:
+        raw_text = extract_text_from_pdf(pdf_bytes)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Não foi possível extrair o texto do PDF: {exc}",
+        )
+
+    if not raw_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não foi possível extrair texto deste PDF.",
+        )
+
+    material = Material(
+        title=title,
+        type="pdf",
+        storage_path=None,
+        raw_text=raw_text,
+    )
+
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+
+    return material

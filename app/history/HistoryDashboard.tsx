@@ -65,6 +65,9 @@ export default function HistoryDashboard() {
     loadHistory();
   }, []);
 
+  const completedSessions = sessions.filter(
+    (session) => session.completed_at !== null
+  );
   function getMaterialTitle(materialId: string) {
     const material = materials.find(
       (item) => item.id === materialId
@@ -106,7 +109,7 @@ export default function HistoryDashboard() {
 
   return (
     <div className="space-y-4">
-      {sessions.map((session) => (
+      {completedSessions.map((session) => (
         <article
           key={session.id}
           className="rounded-xl bg-white p-5 shadow-sm"

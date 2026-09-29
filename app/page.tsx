@@ -42,7 +42,14 @@ export default async function Home() {
               href="/performance"
               className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
             >
-              Meu desempenho
+              
+Meu desempenho
+            </Link>
+            <Link
+              href="/history"
+              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
+            >
+              Histórico
             </Link>
           </div>
         </header>

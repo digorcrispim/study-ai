@@ -68,6 +68,29 @@ export default function HistoryDashboard() {
   const completedSessions = sessions.filter(
     (session) => session.completed_at !== null
   );
+  const totalQuestions = completedSessions.reduce(
+    (total, session) => total + session.total_questions,
+    0
+  );
+
+  const totalCorrectAnswers = completedSessions.reduce(
+    (total, session) => total + session.correct_answers,
+    0
+  );
+
+  const overallAccuracy =
+    totalQuestions > 0
+      ? (totalCorrectAnswers / totalQuestions) * 100
+      : 0;
+
+  const studySessions = completedSessions.filter(
+    (session) => session.mode === "study"
+  ).length;
+
+  const reviewSessions = completedSessions.filter(
+    (session) => session.mode === "review"
+  ).length;
+
   function getMaterialTitle(materialId: string) {
     const material = materials.find(
       (item) => item.id === materialId
@@ -108,7 +131,52 @@ export default function HistoryDashboard() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Sessões concluídas</p>
+          <p className="mt-2 text-3xl font-bold text-zinc-900">
+            {completedSessions.length}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Questões respondidas</p>
+          <p className="mt-2 text-3xl font-bold text-zinc-900">
+            {totalQuestions}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Acertos</p>
+          <p className="mt-2 text-3xl font-bold text-zinc-900">
+            {totalCorrectAnswers}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Precisão geral</p>
+          <p className="mt-2 text-3xl font-bold text-zinc-900">
+            {overallAccuracy.toFixed(1)}%
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Sessões de estudo</p>
+          <p className="mt-2 text-2xl font-bold text-zinc-900">
+            {studySessions}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-zinc-500">Sessões de revisão</p>
+          <p className="mt-2 text-2xl font-bold text-zinc-900">
+            {reviewSessions}
+          </p>
+        </div>
+      </div>
       {completedSessions.map((session) => (
         <article
           key={session.id}
@@ -171,3 +239,4 @@ export default function HistoryDashboard() {
     </div>
   );
 }
+

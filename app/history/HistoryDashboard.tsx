@@ -1,0 +1,170 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { getUserId } from "@/lib/user";
+
+type StudySession = {
+  id: string;
+  user_id: string;
+  material_id: string;
+  mode: "study" | "review";
+  started_at: string;
+  completed_at: string | null;
+  total_questions: number;
+  correct_answers: number;
+  accuracy: number;
+};
+
+type Material = {
+  id: string;
+  title: string;
+};
+
+export default function HistoryDashboard() {
+  const [sessions, setSessions] = useState<StudySession[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const userId = getUserId();
+
+        const [sessionsResponse, materialsResponse] = await Promise.all([
+          fetch(
+            `http://127.0.0.1:8000/sessions/user/${userId}`,
+            {
+              cache: "no-store",
+            }
+          ),
+          fetch("http://127.0.0.1:8000/materials", {
+            cache: "no-store",
+          }),
+        ]);
+
+        if (!sessionsResponse.ok || !materialsResponse.ok) {
+          throw new Error("Não foi possível carregar o histórico.");
+        }
+
+        const sessionsData: StudySession[] =
+          await sessionsResponse.json();
+
+        const materialsData: Material[] =
+          await materialsResponse.json();
+
+        setSessions(sessionsData);
+        setMaterials(materialsData);
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadHistory();
+  }, []);
+
+  function getMaterialTitle(materialId: string) {
+    const material = materials.find(
+      (item) => item.id === materialId
+    );
+
+    return material?.title ?? "Material não encontrado";
+  }
+
+  function formatDate(date: string) {
+    return new Date(date).toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-white p-6 shadow-sm">
+        Carregando histórico...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-zinc-500">
+        Não foi possível carregar o histórico.
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-500">
+        Ainda não há sessões de estudo registradas.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {sessions.map((session) => (
+        <article
+          key={session.id}
+          className="rounded-xl bg-white p-5 shadow-sm"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900">
+                {getMaterialTitle(session.material_id)}
+              </h2>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                {session.mode === "study"
+                  ? "Modo de estudo"
+                  : "Modo de revisão"}
+              </p>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                Início: {formatDate(session.started_at)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-xs text-zinc-500">Questões</p>
+                <p className="mt-1 text-lg font-bold text-zinc-900">
+                  {session.total_questions}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-zinc-500">Acertos</p>
+                <p className="mt-1 text-lg font-bold text-zinc-900">
+                  {session.correct_answers}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-zinc-500">Precisão</p>
+                <p className="mt-1 text-lg font-bold text-zinc-900">
+                  {session.accuracy.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-zinc-100 pt-4">
+            {session.completed_at ? (
+              <p className="text-sm text-zinc-500">
+                Concluída em {formatDate(session.completed_at)}
+              </p>
+            ) : (
+              <p className="text-sm text-zinc-500">
+                Sessão não concluída
+              </p>
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}

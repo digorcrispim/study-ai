@@ -243,6 +243,88 @@ def list_adaptive_questions(
 
 
 @router.get(
+    "/material/{material_id}/review/{user_id}",
+    response_model=list[QuestionStudyResponse],
+)
+def list_review_questions(
+    material_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(get_db),
+):
+    questions_statement = (
+        select(Question)
+        .where(Question.material_id == material_id)
+        .order_by(Question.created_at.desc())
+    )
+
+    questions = db.scalars(questions_statement).all()
+
+    if not questions:
+        return []
+
+    question_ids = [question.id for question in questions]
+
+    answers_statement = (
+        select(UserAnswer)
+        .where(
+            UserAnswer.user_id == user_id,
+            UserAnswer.question_id.in_(question_ids),
+        )
+        .order_by(UserAnswer.question_id, UserAnswer.answered_at.desc())
+    )
+
+    answers = db.scalars(answers_statement).all()
+
+    answers_by_question = {}
+
+    for answer in answers:
+        answers_by_question.setdefault(answer.question_id, []).append(answer)
+
+    from datetime import datetime, timedelta, timezone
+
+    intervals = [1, 3, 7, 14, 30]
+
+    due_questions = []
+
+    for question in questions:
+        question_answers = answers_by_question.get(question.id, [])
+
+        if not question_answers:
+            continue
+
+        latest_answer = question_answers[0]
+
+        if not latest_answer.is_correct:
+            next_review_at = latest_answer.answered_at
+        else:
+            correct_streak = 0
+
+            for answer in question_answers:
+                if not answer.is_correct:
+                    break
+                correct_streak += 1
+
+            interval_days = intervals[min(correct_streak - 1, len(intervals) - 1)]
+            next_review_at = latest_answer.answered_at + timedelta(
+                days=interval_days
+            )
+
+        now = datetime.now(timezone.utc)
+
+        if next_review_at <= now:
+            due_questions.append(
+                (
+                    next_review_at,
+                    question,
+                )
+            )
+
+    due_questions.sort(key=lambda item: item[0])
+
+    return [question for _, question in due_questions]
+
+
+@router.get(
     "/material/{material_id}/study",
     response_model=list[QuestionStudyResponse],
 )

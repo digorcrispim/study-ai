@@ -16,6 +16,7 @@ type StudyQuestionData = {
   options: Record<string, string>;
   topics: string[] | null;
   difficulty: string | null;
+  explanation: string | null;
 };
 
 async function getMaterial(id: string): Promise<Material> {

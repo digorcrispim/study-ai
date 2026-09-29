@@ -8,6 +8,7 @@ type StudyQuestion = {
   question_text: string;
   options: Record<string, string>;
   difficulty: string | null;
+  explanation: string | null;
 };
 
 type StudyQuizProps = {
@@ -319,6 +320,17 @@ export default function StudyQuiz({
             <p className="font-medium">
               ❌ Resposta incorreta.
             </p>
+          )}
+
+          {currentQuestion.explanation && (
+            <div className="mt-4 border-t border-zinc-200 pt-4">
+              <p className="text-sm font-semibold text-zinc-700">
+                Explicação
+              </p>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">
+                {currentQuestion.explanation}
+              </p>
+            </div>
           )}
         </div>
       )}

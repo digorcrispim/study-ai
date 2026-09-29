@@ -93,6 +93,7 @@ class QuestionStudyResponse(BaseModel):
     options: dict[str, str]
     topics: list[str] | None
     difficulty: str | None
+    explanation: str | None
 
 
 class MaterialTextUpdate(BaseModel):

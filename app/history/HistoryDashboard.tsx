@@ -96,6 +96,45 @@ export default function HistoryDashboard() {
     (session) => session.mode === "review"
   ).length;
 
+  const materialPerformance = completedSessions.reduce(
+    (groups, session) => {
+      const existing = groups.find(
+        (item) => item.material_id === session.material_id
+      );
+
+      if (existing) {
+        existing.sessions += 1;
+        existing.total_questions += session.total_questions;
+        existing.correct_answers += session.correct_answers;
+
+        if (session.mode === "study") {
+          existing.study_sessions += 1;
+        } else {
+          existing.review_sessions += 1;
+        }
+      } else {
+        groups.push({
+          material_id: session.material_id,
+          sessions: 1,
+          total_questions: session.total_questions,
+          correct_answers: session.correct_answers,
+          study_sessions: session.mode === "study" ? 1 : 0,
+          review_sessions: session.mode === "review" ? 1 : 0,
+        });
+      }
+
+      return groups;
+    },
+    [] as Array<{
+      material_id: string;
+      sessions: number;
+      total_questions: number;
+      correct_answers: number;
+      study_sessions: number;
+      review_sessions: number;
+    }>
+  );
+
   function getMaterialTitle(materialId: string) {
     const material = materials.find(
       (item) => item.id === materialId
@@ -182,6 +221,70 @@ export default function HistoryDashboard() {
           </p>
         </div>
       </div>
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Desempenho por material</h2>
+
+        {materialPerformance.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            Ainda não há desempenho registrado por material.
+          </p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {materialPerformance.map((item) => {
+              const accuracy =
+                item.total_questions > 0
+                  ? (item.correct_answers / item.total_questions) * 100
+                  : 0;
+
+              return (
+                <article
+                  key={item.material_id}
+                  className="space-y-3 rounded-xl border p-4"
+                >
+                  <h3 className="font-semibold">
+                    {getMaterialTitle(item.material_id)}
+                  </h3>
+
+                  <p className="text-sm text-gray-500">
+                    {item.sessions} sessões concluídas
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-gray-500">Questões</p>
+                      <p className="text-lg font-semibold">
+                        {item.total_questions}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-gray-500">Acertos</p>
+                      <p className="text-lg font-semibold">
+                        {item.correct_answers}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-gray-500">Precisão</p>
+                      <p className="text-lg font-semibold">
+                        {accuracy.toFixed(1)}%
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-gray-500">Estudo / Revisão</p>
+                      <p className="text-lg font-semibold">
+                        {item.study_sessions} / {item.review_sessions}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <div className="flex flex-wrap gap-2">
         <button
           type="button"

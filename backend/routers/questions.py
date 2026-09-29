@@ -129,6 +129,7 @@ def list_adaptive_questions(
         select(UserAnswer, Question)
         .join(Question, UserAnswer.question_id == Question.id)
         .where(UserAnswer.user_id == user_id)
+        .order_by(UserAnswer.answered_at.desc())
     )
 
     all_answer_rows = db.execute(all_answers_statement).all()

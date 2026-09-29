@@ -74,12 +74,21 @@ export default async function Home() {
                       </p>
                     </div>
 
-                    <Link
-                      href={`/materials/${material.id}`}
-                      className="rounded-lg bg-zinc-900 px-5 py-3 text-center font-medium text-white hover:bg-zinc-800"
-                    >
-                      Estudar
-                    </Link>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Link
+                        href={`/materials/${material.id}`}
+                        className="rounded-lg bg-zinc-900 px-5 py-3 text-center font-medium text-white hover:bg-zinc-800"
+                      >
+                        Estudar
+                      </Link>
+
+                      <Link
+                        href={`/materials/${material.id}/review`}
+                        className="rounded-lg border border-zinc-300 px-5 py-3 text-center font-medium text-zinc-900 hover:bg-zinc-50"
+                      >
+                        Revisar
+                      </Link>
+                    </div>
                   </div>
                 </article>
               ))}

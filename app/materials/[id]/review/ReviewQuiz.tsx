@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getUserId } from "@/lib/user";
 
 type ReviewQuestion = {
@@ -19,7 +19,12 @@ type ReviewQuizProps = {
 export default function ReviewQuiz({
   materialId,
 }: ReviewQuizProps) {
-  const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
+  
+const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
+  
+const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionCreationStarted = useRef(false);
+  const [sessionCompleted, setSessionCompleted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] =
     useState<number | null>(null);
@@ -50,7 +55,39 @@ export default function ReviewQuiz({
         const data: ReviewQuestion[] =
           await response.json();
 
-        setQuestions(data);
+        
+setQuestions(data);
+        
+if (data.length > 0) {
+          if (sessionCreationStarted.current) {
+            return;
+          }
+
+          sessionCreationStarted.current = true;
+          const sessionResponse = await fetch(
+            "http://127.0.0.1:8000/sessions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                user_id: getUserId(),
+                material_id: materialId,
+                mode: "review",
+              }),
+            }
+          );
+
+          if (!sessionResponse.ok) {
+            throw new Error(
+              "Não foi possível iniciar a sessão de revisão."
+            );
+          }
+
+          const sessionData = await sessionResponse.json();
+          setSessionId(sessionData.id);
+        }
       } catch (error) {
         console.error(error);
       } finally {
@@ -62,6 +99,49 @@ export default function ReviewQuiz({
   }, [materialId]);
 
   const currentQuestion = questions[currentIndex];
+  const finished = currentIndex >= questions.length;
+
+  useEffect(() => {
+    if (!sessionId || !finished || sessionCompleted) {
+      return;
+    }
+
+    async function completeSession() {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:8000/sessions/${sessionId}/complete`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              total_questions: questions.length,
+              correct_answers: correctAnswers,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            "Não foi possível concluir a sessão de revisão."
+          );
+        }
+
+        setSessionCompleted(true);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    completeSession();
+  }, [
+    sessionId,
+    finished,
+    sessionCompleted,
+    questions.length,
+    correctAnswers,
+  ]);
 
   async function submitAnswer() {
     if (
@@ -71,7 +151,9 @@ export default function ReviewQuiz({
       !currentQuestion
     ) {
       return;
-    }
+   
+    }    
+
 
     setLoading(true);
 

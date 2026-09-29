@@ -108,7 +108,7 @@ def list_adaptive_questions(
 
     question_ids = [question.id for question in questions]
 
-    answers_statement = (
+    material_answers_statement = (
         select(UserAnswer)
         .where(
             UserAnswer.user_id == user_id,
@@ -117,13 +117,66 @@ def list_adaptive_questions(
         .order_by(UserAnswer.answered_at.desc())
     )
 
-    answers = db.scalars(answers_statement).all()
+    material_answers = db.scalars(material_answers_statement).all()
 
     latest_answers = {}
 
-    for answer in answers:
+    for answer in material_answers:
         if answer.question_id not in latest_answers:
             latest_answers[answer.question_id] = answer
+
+    all_answers_statement = (
+        select(UserAnswer, Question)
+        .join(Question, UserAnswer.question_id == Question.id)
+        .where(UserAnswer.user_id == user_id)
+    )
+
+    all_answer_rows = db.execute(all_answers_statement).all()
+
+    latest_user_answers = {}
+
+    for answer, question in all_answer_rows:
+        if answer.question_id not in latest_user_answers:
+            latest_user_answers[answer.question_id] = (answer, question)
+
+    topic_stats = {}
+
+    for answer, question in latest_user_answers.values():
+        for topic in set(question.topics or []):
+            if topic not in topic_stats:
+                topic_stats[topic] = {
+                    "total": 0,
+                    "correct": 0,
+                }
+
+            topic_stats[topic]["total"] += 1
+
+            if answer.is_correct:
+                topic_stats[topic]["correct"] += 1
+
+    topic_accuracy = {}
+
+    for topic, stats in topic_stats.items():
+        total = stats["total"]
+        correct = stats["correct"]
+
+        topic_accuracy[topic] = (
+            correct / total
+            if total > 0
+            else 0.5
+        )
+
+    def question_topic_accuracy(question):
+        accuracies = [
+            topic_accuracy[topic]
+            for topic in set(question.topics or [])
+            if topic in topic_accuracy
+        ]
+
+        if not accuracies:
+            return 0.5
+
+        return min(accuracies)
 
     wrong_questions = []
     unanswered_questions = []
@@ -140,18 +193,24 @@ def list_adaptive_questions(
             correct_questions.append(question)
 
     wrong_questions.sort(
-        key=lambda question: latest_answers[question.id].answered_at,
-        reverse=True,
+        key=lambda question: (
+            question_topic_accuracy(question),
+            -latest_answers[question.id].answered_at.timestamp(),
+        )
     )
 
     unanswered_questions.sort(
-        key=lambda question: question.created_at,
-        reverse=True,
+        key=lambda question: (
+            question_topic_accuracy(question),
+            -question.created_at.timestamp(),
+        )
     )
 
     correct_questions.sort(
-        key=lambda question: latest_answers[question.id].answered_at,
-        reverse=True,
+        key=lambda question: (
+            question_topic_accuracy(question),
+            -latest_answers[question.id].answered_at.timestamp(),
+        )
     )
 
     return (

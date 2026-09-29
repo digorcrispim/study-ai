@@ -178,6 +178,24 @@ def list_adaptive_questions(
 
         return min(accuracies)
 
+    difficulty_rank = {
+        "easy": 0,
+        "medium": 1,
+        "hard": 2,
+    }
+
+    def target_difficulty(accuracy):
+        if accuracy < 0.5:
+            return 0
+        if accuracy < 0.8:
+            return 1
+        return 2
+
+    def difficulty_distance(question):
+        current_rank = difficulty_rank.get(question.difficulty, 1)
+        target_rank = target_difficulty(question_topic_accuracy(question))
+        return abs(current_rank - target_rank)
+
     wrong_questions = []
     unanswered_questions = []
     correct_questions = []
@@ -195,6 +213,7 @@ def list_adaptive_questions(
     wrong_questions.sort(
         key=lambda question: (
             question_topic_accuracy(question),
+            difficulty_distance(question),
             -latest_answers[question.id].answered_at.timestamp(),
         )
     )
@@ -202,6 +221,7 @@ def list_adaptive_questions(
     unanswered_questions.sort(
         key=lambda question: (
             question_topic_accuracy(question),
+            difficulty_distance(question),
             -question.created_at.timestamp(),
         )
     )
@@ -209,6 +229,7 @@ def list_adaptive_questions(
     correct_questions.sort(
         key=lambda question: (
             question_topic_accuracy(question),
+            difficulty_distance(question),
             -latest_answers[question.id].answered_at.timestamp(),
         )
     )

@@ -23,6 +23,8 @@ export default function StudyQuiz({
 }: StudyQuizProps) {
   const [studyQuestions, setStudyQuestions] = useState(questions);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionCompleted, setSessionCompleted] = useState(false);
   const [loadingNext, setLoadingNext] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -53,6 +55,30 @@ export default function StudyQuiz({
         if (!cancelled && data.length > 0) {
           setStudyQuestions(data);
           setCurrentIndex(0);
+
+          const sessionResponse = await fetch(
+            "http://127.0.0.1:8000/sessions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                user_id: getUserId(),
+                material_id: materialId,
+                mode: "study",
+              }),
+            }
+          );
+
+          if (!sessionResponse.ok) {
+            throw new Error(
+              "Não foi possível iniciar a sessão de estudo."
+            );
+          }
+
+          const sessionData = await sessionResponse.json();
+          setSessionId(sessionData.id);
         }
       } catch (error) {
         console.error(error);
@@ -72,7 +98,47 @@ export default function StudyQuiz({
 
   const currentQuestion = studyQuestions[currentIndex];
   const sessionTotal = questions.length;
-  const finished = currentIndex >= sessionTotal;
+  
+const finished = currentIndex >= sessionTotal;
+  useEffect(() => {
+    if (!sessionId || !finished || sessionCompleted) {
+      return;
+    }
+
+    async function completeSession() {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:8000/sessions/${sessionId}/complete`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              total_questions: sessionTotal,
+              correct_answers: correctAnswers,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Não foi possível concluir a sessão.");
+        }
+
+        setSessionCompleted(true);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    completeSession();
+  }, [
+    sessionId,
+    finished,
+    sessionCompleted,
+    sessionTotal,
+    correctAnswers,
+  ]);
 
   async function submitAnswer() {
     if (
@@ -358,3 +424,4 @@ export default function StudyQuiz({
     </section>
   );
 }
+

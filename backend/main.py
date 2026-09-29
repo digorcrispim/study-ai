@@ -6,6 +6,7 @@ from backend.models.database import check_database_connection
 from backend.routers.materials import router as materials_router
 from backend.routers.questions import router as questions_router
 from backend.routers.answers import router as answers_router
+from backend.routers.sessions import router as sessions_router
 
 app = FastAPI(
     title="Study AI API",
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(materials_router)
 app.include_router(questions_router)
 app.include_router(answers_router)
+app.include_router(sessions_router)
 
 
 @app.get("/")

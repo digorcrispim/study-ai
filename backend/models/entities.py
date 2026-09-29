@@ -78,3 +78,35 @@ class UserAnswer(Base):
     answered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class StudySession(Base):
+    __tablename__ = "study_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    material_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("materials.id"), nullable=False
+    )
+    mode: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    total_questions: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    correct_answers: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    accuracy: Mapped[float] = mapped_column(
+        nullable=False, default=0.0
+    )

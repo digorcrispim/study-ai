@@ -100,5 +100,30 @@ class MaterialTextUpdate(BaseModel):
     raw_text: str = Field(min_length=1)
 
 
+class StudySessionCreate(BaseModel):
+    user_id: UUID
+    material_id: UUID
+    mode: Literal["study", "review"]
+
+
+class StudySessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    material_id: UUID
+    mode: str
+    started_at: datetime
+    completed_at: datetime | None
+    total_questions: int
+    correct_answers: int
+    accuracy: float
+
+
+class StudySessionComplete(BaseModel):
+    total_questions: int = Field(ge=0)
+    correct_answers: int = Field(ge=0)
+
+
 class QuestionGenerationRequest(BaseModel):
     number_of_questions: int = Field(default=5, ge=1, le=20)

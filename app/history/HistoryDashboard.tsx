@@ -22,6 +22,7 @@ type Material = {
 
 export default function HistoryDashboard() {
   const [sessions, setSessions] = useState<StudySession[]>([]);
+  const [filter, setFilter] = useState<"all" | "study" | "review">("all");
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -67,6 +68,10 @@ export default function HistoryDashboard() {
 
   const completedSessions = sessions.filter(
     (session) => session.completed_at !== null
+  );
+
+  const filteredSessions = completedSessions.filter(
+    (session) => filter === "all" || session.mode === filter
   );
   const totalQuestions = completedSessions.reduce(
     (total, session) => total + session.total_questions,
@@ -177,7 +182,45 @@ export default function HistoryDashboard() {
           </p>
         </div>
       </div>
-      {completedSessions.map((session) => (
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setFilter("all")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            filter === "all"
+              ? "bg-zinc-900 text-white"
+              : "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50"
+          }`}
+        >
+          Todas
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilter("study")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            filter === "study"
+              ? "bg-zinc-900 text-white"
+              : "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50"
+          }`}
+        >
+          Estudo
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilter("review")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            filter === "review"
+              ? "bg-zinc-900 text-white"
+              : "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50"
+          }`}
+        >
+          Revisão
+        </button>
+      </div>
+
+      {filteredSessions.map((session) => (
         <article
           key={session.id}
           className="rounded-xl bg-white p-5 shadow-sm"

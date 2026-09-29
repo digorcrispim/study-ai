@@ -73,6 +73,19 @@ class UserAnswerSummaryResponse(BaseModel):
     accuracy: float
 
 
+class TopicPerformance(BaseModel):
+    topic: str
+    total_answers: int
+    correct_answers: int
+    incorrect_answers: int
+    accuracy: float
+
+
+class UserTopicPerformanceResponse(BaseModel):
+    user_id: UUID
+    topics: list[TopicPerformance]
+
+
 class QuestionStudyResponse(BaseModel):
     id: UUID
     material_id: UUID | None

@@ -10,6 +10,7 @@ from backend.models.schemas import (
     UserAnswerCreate,
     UserAnswerResponse,
     UserAnswerSummaryResponse,
+    UserTopicPerformanceResponse,
 )
 
 router = APIRouter(prefix="/questions", tags=["Respostas"])
@@ -74,6 +75,65 @@ def list_user_answers(
 
     return db.scalars(statement).all()
 
+
+
+@router.get(
+    "/user/{user_id}/topics",
+    response_model=UserTopicPerformanceResponse,
+)
+def get_user_topic_performance(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(UserAnswer, Question)
+        .join(Question, UserAnswer.question_id == Question.id)
+        .where(UserAnswer.user_id == user_id)
+    )
+
+    rows = db.execute(statement).all()
+
+    topic_stats = {}
+
+    for answer, question in rows:
+        for topic in set(question.topics or []):
+            if topic not in topic_stats:
+                topic_stats[topic] = {
+                    "total_answers": 0,
+                    "correct_answers": 0,
+                }
+
+            topic_stats[topic]["total_answers"] += 1
+
+            if answer.is_correct:
+                topic_stats[topic]["correct_answers"] += 1
+
+    topics = []
+
+    for topic, stats in sorted(topic_stats.items()):
+        total_answers = stats["total_answers"]
+        correct_answers = stats["correct_answers"]
+        incorrect_answers = total_answers - correct_answers
+        accuracy = (
+            (correct_answers / total_answers) * 100
+            if total_answers > 0
+            else 0.0
+        )
+
+        topics.append(
+            {
+                "topic": topic,
+                "total_answers": total_answers,
+                "correct_answers": correct_answers,
+                "incorrect_answers": incorrect_answers,
+                "accuracy": accuracy,
+            }
+        )
+
+    return {
+        "user_id": user_id,
+        "topics": topics,
+    }
 
 
 @router.get(

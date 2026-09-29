@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getUserId } from "@/lib/user";
 
 type StudyQuestion = {
@@ -12,21 +12,66 @@ type StudyQuestion = {
 
 type StudyQuizProps = {
   questions: StudyQuestion[];
+  materialId: string;
 };
 
 
 export default function StudyQuiz({
   questions,
+  materialId,
 }: StudyQuizProps) {
+  const [studyQuestions, setStudyQuestions] = useState(questions);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
+  const [loadingNext, setLoadingNext] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [result, setResult] = useState<boolean | null>(null);
   const [correctAnswers, setCorrectAnswers] = useState(0);
   const [answered, setAnswered] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [sessionAnsweredIds, setSessionAnsweredIds] = useState<string[]>([]);
 
-  const currentQuestion = questions[currentIndex];
-  const finished = currentIndex >= questions.length;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAdaptiveQuestions() {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Não foi possível carregar a fila adaptativa.");
+        }
+
+        const data: StudyQuestion[] = await response.json();
+
+        if (!cancelled && data.length > 0) {
+          setStudyQuestions(data);
+          setCurrentIndex(0);
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (!cancelled) {
+          setLoadingQuestions(false);
+        }
+      }
+    }
+
+    loadAdaptiveQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [materialId]);
+
+  const currentQuestion = studyQuestions[currentIndex];
+  const sessionTotal = questions.length;
+  const finished = currentIndex >= sessionTotal;
 
   async function submitAnswer() {
     if (
@@ -64,6 +109,7 @@ export default function StudyQuiz({
 
       setResult(data.is_correct);
       setAnswered(true);
+      setSessionAnsweredIds((ids) => [...ids, currentQuestion.id]);
 
       if (data.is_correct) {
         setCorrectAnswers((value) => value + 1);
@@ -75,11 +121,81 @@ export default function StudyQuiz({
     }
   }
 
-  function nextQuestion() {
-    setCurrentIndex((value) => value + 1);
-    setSelectedAnswer(null);
-    setResult(null);
-    setAnswered(false);
+  async function nextQuestion() {
+    if (loadingNext) {
+      return;
+    }
+
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex >= sessionTotal) {
+      setCurrentIndex(nextIndex);
+      return;
+    }
+
+    setLoadingNext(true);
+
+    try {
+      const answeredIds = new Set(sessionAnsweredIds);
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Não foi possível atualizar a fila adaptativa.");
+      }
+
+      const adaptiveQuestions: StudyQuestion[] =
+        await response.json();
+
+      const remainingQuestions = adaptiveQuestions.filter(
+        (question) => !answeredIds.has(question.id)
+      );
+
+      const fallbackQuestions = studyQuestions.filter(
+        (question, index) =>
+          index > currentIndex && !answeredIds.has(question.id)
+      );
+
+      const nextQuestions =
+        remainingQuestions.length > 0
+          ? remainingQuestions
+          : fallbackQuestions;
+
+      const newQueue = [
+        ...studyQuestions.slice(0, nextIndex),
+        ...nextQuestions,
+      ].slice(0, sessionTotal);
+
+      setStudyQuestions(newQueue);
+      setCurrentIndex(nextIndex);
+      setSelectedAnswer(null);
+      setResult(null);
+      setAnswered(false);
+    } catch (error) {
+      console.error(error);
+
+      setCurrentIndex(nextIndex);
+      setSelectedAnswer(null);
+      setResult(null);
+      setAnswered(false);
+    } finally {
+      setLoadingNext(false);
+    }
+  }
+
+  if (loadingQuestions) {
+    return (
+      <section className="rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
+        <p className="text-sm text-zinc-500">
+          Preparando seu estudo personalizado...
+        </p>
+      </section>
+    );
   }
 
   if (finished) {
@@ -103,7 +219,7 @@ export default function StudyQuiz({
               Questões
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {total}
+              {sessionTotal}
             </p>
           </div>
 
@@ -133,7 +249,7 @@ export default function StudyQuiz({
     <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-zinc-500">
-          Questão {currentIndex + 1} de {questions.length}
+          Questão {currentIndex + 1} de {sessionTotal}
         </p>
 
         <p className="text-sm text-zinc-500">
@@ -211,11 +327,14 @@ export default function StudyQuiz({
         <button
           type="button"
           onClick={nextQuestion}
-          className="mt-4 rounded-lg border border-zinc-300 px-5 py-3 font-medium text-zinc-900 hover:bg-zinc-50"
+          disabled={loadingNext}
+          className="mt-4 rounded-lg border border-zinc-300 px-5 py-3 font-medium text-zinc-900 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {currentIndex === questions.length - 1
-            ? "Ver resultado"
-            : "Próxima questão"}
+          {loadingNext
+            ? "Preparando próxima..."
+            : currentIndex === sessionTotal - 1
+              ? "Ver resultado"
+              : "Próxima questão"}
         </button>
       )}
 

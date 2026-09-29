@@ -86,7 +86,7 @@ export default async function StudyPage({
             Ainda não existem questões para este material.
           </div>
         ) : (
-          <StudyQuiz questions={questions} />
+          <StudyQuiz questions={questions} materialId={id} />
         )}
       </div>
     </main>

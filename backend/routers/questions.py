@@ -93,6 +93,7 @@ def list_questions_by_material(
 def list_adaptive_questions(
     material_id: UUID,
     user_id: UUID,
+    topic: str | None = None,
     db: Session = Depends(get_db),
 ):
     questions_statement = (
@@ -102,6 +103,15 @@ def list_adaptive_questions(
     )
 
     questions = db.scalars(questions_statement).all()
+
+    if topic is not None:
+        normalized_topic = topic.strip()
+        if normalized_topic:
+            questions = [
+                question
+                for question in questions
+                if normalized_topic in (question.topics or [])
+            ]
 
     if not questions:
         return []

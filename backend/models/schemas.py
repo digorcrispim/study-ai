@@ -85,6 +85,7 @@ class UserAnswerSummaryResponse(BaseModel):
 
 class TopicPerformance(BaseModel):
     topic: str
+    material_ids: list[UUID]
     total_answers: int
     correct_answers: int
     incorrect_answers: int

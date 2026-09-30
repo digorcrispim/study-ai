@@ -53,15 +53,29 @@ async function getQuestions(
 
 export default async function StudyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ topic?: string | string[] }>;
 }) {
-  const { id } = await params;
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const topicParam = query.topic;
+  const selectedTopic = Array.isArray(topicParam)
+    ? topicParam[0]
+    : topicParam;
 
   const [material, questions] = await Promise.all([
     getMaterial(id),
     getQuestions(id),
   ]);
+  const filteredQuestions =
+    selectedTopic === undefined
+      ? questions
+      : questions.filter((question) =>
+          question.topics?.some(
+            (questionTopic) => questionTopic === selectedTopic
+          )
+        );
 
   return (
     <main className="min-h-screen bg-zinc-50 p-8">
@@ -76,18 +90,26 @@ export default async function StudyPage({
           </h1>
 
           <p className="mt-2 text-zinc-600">
-            {questions.length === 1
+            {filteredQuestions.length === 1
               ? "1 questão disponível."
-              : `${questions.length} questões disponíveis.`}
+              : `${filteredQuestions.length} questões disponíveis.`}
           </p>
         </header>
 
-        {questions.length === 0 ? (
+        {filteredQuestions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-500">
-            Ainda não existem questões para este material.
+            {selectedTopic === undefined
+              ? "Ainda não existem questões para este material."
+              : `Ainda não existem questões para o tópico "${selectedTopic}" neste material.`}
           </div>
         ) : (
-          <StudyQuiz questions={questions} materialId={id} />
+          <StudyQuiz
+            questions={filteredQuestions}
+            materialId={id}
+            {...(selectedTopic !== undefined
+              ? { topic: selectedTopic }
+              : {})}
+          />
         )}
       </div>
     </main>

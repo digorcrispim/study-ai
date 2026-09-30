@@ -30,6 +30,7 @@ def prepare_adaptive_questions(
     user_id: UUID,
     is_correct: bool,
     db: Session,
+    topic: str | None = None,
 ):
     """
     Prepara questões adaptativas para o próximo estudo.
@@ -44,10 +45,13 @@ def prepare_adaptive_questions(
     # 1. Precisamos de um tópico para orientar a adaptação.
     topics = question.topics or []
 
-    if not topics:
-        return []
+    if topic is not None and topic.strip():
+        topic = topic.strip()
+    else:
+        if not topics:
+            return []
 
-    topic = topics[0].strip()
+        topic = topics[0].strip()
 
     # 2. Define a nova dificuldade.
     difficulty_levels = ["easy", "medium", "hard"]
@@ -123,6 +127,7 @@ def prepare_adaptive_questions(
 def answer_question(
     question_id: UUID,
     answer_data: UserAnswerCreate,
+    topic: str | None = None,
     db: Session = Depends(get_db),
 ):
     question = db.get(Question, question_id)
@@ -155,6 +160,7 @@ def answer_question(
             user_id=answer_data.user_id,
             is_correct=is_correct,
             db=db,
+            topic=topic,
         )
     except Exception as exc:
         print(f"Erro ao preparar questões adaptativas: {exc}")
@@ -213,12 +219,18 @@ def get_user_topic_performance(
                 topic_stats[topic] = {
                     "total_answers": 0,
                     "correct_answers": 0,
+                    "material_ids": set(),
                 }
 
             topic_stats[topic]["total_answers"] += 1
 
             if answer.is_correct:
                 topic_stats[topic]["correct_answers"] += 1
+
+            if question.material_id is not None:
+                topic_stats[topic]["material_ids"].add(
+                    question.material_id
+                )
 
     topics = []
 
@@ -239,6 +251,10 @@ def get_user_topic_performance(
                 "correct_answers": correct_answers,
                 "incorrect_answers": incorrect_answers,
                 "accuracy": accuracy,
+                "material_ids": sorted(
+                    stats["material_ids"],
+                    key=str,
+                ),
             }
         )
 

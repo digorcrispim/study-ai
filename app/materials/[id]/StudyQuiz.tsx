@@ -23,6 +23,7 @@ type AdaptiveQuestion = {
 type StudyQuizProps = {
   questions: StudyQuestion[];
   materialId: string;
+  topic?: string;
 };
 
 const SESSION_SIZE = 5;
@@ -30,6 +31,7 @@ const SESSION_SIZE = 5;
 export default function StudyQuiz({
   questions,
   materialId,
+  topic,
 }: StudyQuizProps) {
   const [studyQuestions, setStudyQuestions] = useState(questions);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
@@ -49,8 +51,12 @@ export default function StudyQuiz({
 
     async function loadAdaptiveQuestions() {
       try {
+        const topicQuery =
+          topic === undefined
+            ? ""
+            : `?topic=${encodeURIComponent(topic)}`;
         const response = await fetch(
-          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}`,
+          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}${topicQuery}`,
           {
             cache: "no-store",
           }
@@ -103,10 +109,10 @@ export default function StudyQuiz({
     return () => {
       cancelled = true;
     };
-  }, [materialId]);
+  }, [materialId, topic]);
 
   const currentQuestion = studyQuestions[currentIndex];
-  const sessionTotal = Math.min(questions.length, SESSION_SIZE);
+  const sessionTotal = Math.min(studyQuestions.length, SESSION_SIZE);
 
   const finished = currentIndex >= sessionTotal;
   useEffect(() => {
@@ -161,8 +167,12 @@ export default function StudyQuiz({
     setLoading(true);
 
     try {
+      const topicQuery =
+        topic === undefined
+          ? ""
+          : `?topic=${encodeURIComponent(topic)}`;
       const response = await fetch(
-        `http://127.0.0.1:8000/questions/${currentQuestion.id}/answer`,
+        `http://127.0.0.1:8000/questions/${currentQuestion.id}/answer${topicQuery}`,
         {
           method: "POST",
           headers: {
@@ -216,11 +226,13 @@ export default function StudyQuiz({
                 )
             );
 
-          return [
+          const finalQuestions = [
             ...previousQuestions,
             ...adaptiveStudyQuestions,
             ...remainingQuestions,
-          ].slice(0, sessionTotal);
+          ].slice(0, SESSION_SIZE);
+
+          return finalQuestions;
         });
       }
 
@@ -263,7 +275,7 @@ function nextQuestion() {
   }
 
   if (finished) {
-    const total = questions.length;
+    const total = sessionTotal;
     const accuracy =
       total > 0 ? (correctAnswers / total) * 100 : 0;
 

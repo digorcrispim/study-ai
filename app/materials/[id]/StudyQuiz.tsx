@@ -11,11 +11,21 @@ type StudyQuestion = {
   explanation: string | null;
 };
 
+type AdaptiveQuestion = {
+  id: string;
+  question_text: string;
+  options: Record<string, string>;
+  topics: string[];
+  difficulty: string;
+  explanation: string | null;
+};
+
 type StudyQuizProps = {
   questions: StudyQuestion[];
   materialId: string;
 };
 
+const SESSION_SIZE = 5;
 
 export default function StudyQuiz({
   questions,
@@ -25,7 +35,7 @@ export default function StudyQuiz({
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionCompleted, setSessionCompleted] = useState(false);
-  const [loadingNext, setLoadingNext] = useState(false);
+  const loadingNext = false;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [result, setResult] = useState<boolean | null>(null);
@@ -53,9 +63,8 @@ export default function StudyQuiz({
         const data: StudyQuestion[] = await response.json();
 
         if (!cancelled && data.length > 0) {
-          setStudyQuestions(data);
+          setStudyQuestions(data.slice(0, SESSION_SIZE));
           setCurrentIndex(0);
-
           const sessionResponse = await fetch(
             "http://127.0.0.1:8000/sessions",
             {
@@ -97,9 +106,9 @@ export default function StudyQuiz({
   }, [materialId]);
 
   const currentQuestion = studyQuestions[currentIndex];
-  const sessionTotal = questions.length;
-  
-const finished = currentIndex >= sessionTotal;
+  const sessionTotal = Math.min(questions.length, SESSION_SIZE);
+
+  const finished = currentIndex >= sessionTotal;
   useEffect(() => {
     if (!sessionId || !finished || sessionCompleted) {
       return;
@@ -174,6 +183,47 @@ const finished = currentIndex >= sessionTotal;
 
       const data = await response.json();
 
+      const adaptiveQuestions: AdaptiveQuestion[] =
+        data.adaptive_questions ?? [];
+
+      if (adaptiveQuestions.length > 0) {
+        setStudyQuestions((currentQuestions) => {
+          const answeredIds = new Set(sessionAnsweredIds);
+          answeredIds.add(currentQuestion.id);
+
+          const previousQuestions = currentQuestions.slice(
+            0,
+            currentIndex + 1
+          );
+
+          const adaptiveStudyQuestions: StudyQuestion[] =
+            adaptiveQuestions.map((question) => ({
+              id: question.id,
+              question_text: question.question_text,
+              options: question.options,
+              difficulty: question.difficulty,
+              explanation: question.explanation,
+            }));
+
+          const remainingQuestions = currentQuestions
+            .slice(currentIndex + 1)
+            .filter((question) => !answeredIds.has(question.id))
+            .filter(
+              (question) =>
+                !adaptiveQuestions.some(
+                  (adaptiveQuestion) =>
+                    adaptiveQuestion.id === question.id
+                )
+            );
+
+          return [
+            ...previousQuestions,
+            ...adaptiveStudyQuestions,
+            ...remainingQuestions,
+          ].slice(0, sessionTotal);
+        });
+      }
+
       setResult(data.is_correct);
       setAnswered(true);
       setSessionAnsweredIds((ids) => [...ids, currentQuestion.id]);
@@ -187,72 +237,19 @@ const finished = currentIndex >= sessionTotal;
       setLoading(false);
     }
   }
+function nextQuestion() {
+  const nextIndex = currentIndex + 1;
 
-  async function nextQuestion() {
-    if (loadingNext) {
-      return;
-    }
+  if (nextIndex >= sessionTotal) {
+    setCurrentIndex(nextIndex);
+    return;
+  }
 
-    const nextIndex = currentIndex + 1;
+  setCurrentIndex(nextIndex);
+  setSelectedAnswer(null);
+  setResult(null);
+  setAnswered(false);
 
-    if (nextIndex >= sessionTotal) {
-      setCurrentIndex(nextIndex);
-      return;
-    }
-
-    setLoadingNext(true);
-
-    try {
-      const answeredIds = new Set(sessionAnsweredIds);
-
-      const response = await fetch(
-        `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}`,
-        {
-          cache: "no-store",
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Não foi possível atualizar a fila adaptativa.");
-      }
-
-      const adaptiveQuestions: StudyQuestion[] =
-        await response.json();
-
-      const remainingQuestions = adaptiveQuestions.filter(
-        (question) => !answeredIds.has(question.id)
-      );
-
-      const fallbackQuestions = studyQuestions.filter(
-        (question, index) =>
-          index > currentIndex && !answeredIds.has(question.id)
-      );
-
-      const nextQuestions =
-        remainingQuestions.length > 0
-          ? remainingQuestions
-          : fallbackQuestions;
-
-      const newQueue = [
-        ...studyQuestions.slice(0, nextIndex),
-        ...nextQuestions,
-      ].slice(0, sessionTotal);
-
-      setStudyQuestions(newQueue);
-      setCurrentIndex(nextIndex);
-      setSelectedAnswer(null);
-      setResult(null);
-      setAnswered(false);
-    } catch (error) {
-      console.error(error);
-
-      setCurrentIndex(nextIndex);
-      setSelectedAnswer(null);
-      setResult(null);
-      setAnswered(false);
-    } finally {
-      setLoadingNext(false);
-    }
   }
 
   if (loadingQuestions) {

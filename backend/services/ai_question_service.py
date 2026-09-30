@@ -239,3 +239,135 @@ def filter_approved_questions(
     return GeneratedQuestionSet(
         questions=approved_questions
     )
+def generate_adaptive_questions(
+    material_title: str,
+    raw_text: str,
+    topic: str,
+    difficulty: str,
+    learning_goal: str,
+    number_of_questions: int = 3,
+) -> GeneratedQuestionSet:
+    """
+    Gera questões adaptativas focadas em um tópico específico.
+
+    learning_goal:
+        - "reinforce" -> reforça um conteúdo em que o estudante teve dificuldade.
+        - "deepen" -> aprofunda um conteúdo em que o estudante demonstrou domínio.
+    """
+
+    if learning_goal not in {"reinforce", "deepen"}:
+        raise ValueError(
+            "learning_goal deve ser 'reinforce' ou 'deepen'."
+        )
+
+    valid_difficulties = {"easy", "medium", "hard"}
+
+    if difficulty not in valid_difficulties:
+        raise ValueError(
+            "difficulty deve ser 'easy', 'medium' ou 'hard'."
+        )
+
+    if not topic.strip():
+        raise ValueError("O tópico não pode estar vazio.")
+
+    if learning_goal == "reinforce":
+        objective = """
+        O estudante apresentou dificuldade neste tópico.
+        As questões devem reforçar os conceitos fundamentais,
+        esclarecer possíveis confusões e trabalhar a compreensão
+        progressivamente.
+        """
+    else:
+        objective = """
+        O estudante respondeu corretamente a uma questão deste tópico.
+        As questões devem aprofundar o conhecimento, exigir maior
+        capacidade de interpretação, relação entre conceitos e aplicação
+        do conteúdo.
+        """
+
+    prompt = f"""
+Você é um gerador de questões adaptativas para uma plataforma de estudos.
+
+Material:
+{material_title}
+
+Conteúdo do material:
+{raw_text}
+
+Tópico específico:
+{topic}
+
+Dificuldade desejada:
+{difficulty}
+
+Objetivo pedagógico:
+{objective}
+
+Tarefa:
+Gere exatamente {number_of_questions} questões de múltipla escolha
+sobre o tópico "{topic}".
+
+Regras:
+- Baseie-se exclusivamente no conteúdo fornecido.
+- Cada questão deve ter exatamente 4 alternativas.
+- Use as chaves "0", "1", "2" e "3" nas alternativas.
+- "correct_answer" deve ser o índice da alternativa correta.
+- A explicação deve justificar a resposta correta com base no material.
+- Informe de 1 a 3 tópicos por questão.
+- Use somente a dificuldade "{difficulty}".
+- O tópico "{topic}" deve aparecer entre os tópicos da questão.
+- Não repita simplesmente a pergunta original.
+- Não invente informações que não estejam sustentadas pelo material.
+"""
+
+    response = client.responses.parse(
+        model=MODEL,
+        input=prompt,
+        text_format=GeneratedQuestionSet,
+    )
+
+    if response.output_parsed is None:
+        raise RuntimeError(
+            "A IA não retornou questões adaptativas estruturadas."
+        )
+
+    if len(response.output_parsed.questions) != number_of_questions:
+        raise ValueError(
+            f"A IA retornou {len(response.output_parsed.questions)} "
+            f"questão(ões), mas eram esperadas {number_of_questions}."
+        )
+
+    generated_questions = validate_generated_questions(
+        response.output_parsed
+    )
+
+    review_set = review_generated_questions(
+        material_title=material_title,
+        raw_text=raw_text,
+        generated_questions=generated_questions,
+    )
+
+    approved_questions = filter_approved_questions(
+        generated_questions=generated_questions,
+        review_set=review_set,
+    )
+
+    for index, question in enumerate(
+        approved_questions.questions,
+        start=1,
+    ):
+        if question.difficulty != difficulty:
+            raise ValueError(
+                f"Questão adaptativa {index}: "
+                f"a dificuldade retornada foi "
+                f"'{question.difficulty}', mas era esperada "
+                f"'{difficulty}'."
+            )
+
+        if topic not in question.topics:
+            raise ValueError(
+                f"Questão adaptativa {index}: "
+                f"o tópico '{topic}' não foi informado."
+            )
+
+    return approved_questions

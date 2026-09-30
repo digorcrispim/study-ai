@@ -53,7 +53,15 @@ class UserAnswerCreate(BaseModel):
     user_id: UUID
     selected_answer: int = Field(ge=0)
 
+class AdaptiveQuestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
+    id: UUID
+    question_text: str
+    options: dict[str, str]
+    topics: list[str]
+    difficulty: str
+    explanation: str | None
 class UserAnswerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +71,8 @@ class UserAnswerResponse(BaseModel):
     selected_answer: int
     is_correct: bool
     answered_at: datetime
+
+    adaptive_questions: list[AdaptiveQuestionResponse] = Field(default_factory=list)
 
 
 class UserAnswerSummaryResponse(BaseModel):

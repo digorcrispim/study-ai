@@ -1,7 +1,7 @@
+from backend.models.entities import Material, Question, UserAnswer
 from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
@@ -12,7 +12,10 @@ from backend.models.schemas import (
     UserAnswerSummaryResponse,
     UserTopicPerformanceResponse,
 )
-
+from backend.services.ai_question_service import (
+    generate_adaptive_questions,
+    save_generated_questions,
+)
 router = APIRouter(prefix="/questions", tags=["Respostas"])
 
 
@@ -22,7 +25,95 @@ def get_db():
         yield db
     finally:
         db.close()
+def prepare_adaptive_questions(
+    question: Question,
+    user_id: UUID,
+    is_correct: bool,
+    db: Session,
+):
+    """
+    Prepara questões adaptativas para o próximo estudo.
 
+    Estratégia:
+    - erro -> reforço, reduzindo a dificuldade;
+    - acerto -> aprofundamento, aumentando a dificuldade;
+    - primeiro reutiliza questões existentes;
+    - só gera novas questões quando necessário.
+    """
+
+    # 1. Precisamos de um tópico para orientar a adaptação.
+    topics = question.topics or []
+
+    if not topics:
+        return []
+
+    topic = topics[0].strip()
+
+    # 2. Define a nova dificuldade.
+    difficulty_levels = ["easy", "medium", "hard"]
+    current_index = difficulty_levels.index(question.difficulty)
+
+    if is_correct:
+        # Acertou -> aumentar a dificuldade.
+        target_index = min(current_index + 1, 2)
+        learning_goal = "deepen"
+    else:
+        # Errou -> reduzir a dificuldade para reforçar.
+        target_index = max(current_index - 1, 0)
+        learning_goal = "reinforce"
+
+    target_difficulty = difficulty_levels[target_index]
+
+    # 3. Procurar questões existentes do mesmo material,
+    #    tópico e dificuldade que o usuário ainda não respondeu.
+    answered_question_exists = exists().where(
+    UserAnswer.user_id == user_id,
+    UserAnswer.question_id == Question.id,
+)
+
+    statement = (
+        select(Question)
+        .where(
+            Question.material_id == question.material_id,
+            Question.difficulty == target_difficulty,
+            Question.topics.any(topic),
+            ~answered_question_exists,
+        )
+        .limit(3)
+    )
+
+    existing_questions = db.scalars(statement).all()
+
+
+    # 4. Se já temos 3 questões disponíveis, não precisamos
+    #    chamar a IA.
+    if len(existing_questions) >= 3:
+        return existing_questions
+
+    # 5. Precisamos de novas questões.
+    material = db.get(Material, question.material_id)
+
+    if material is None:
+        return existing_questions
+
+    missing_questions = 3 - len(existing_questions)
+
+    generated_questions = generate_adaptive_questions(
+        material_title=material.title,
+        raw_text=material.raw_text,
+        topic=topic,
+        difficulty=target_difficulty,
+        learning_goal=learning_goal,
+        number_of_questions=missing_questions,
+    )
+
+    new_questions = save_generated_questions(
+        material_id=question.material_id,
+        generated_questions=generated_questions,
+        db=db,
+    )
+
+    return existing_questions + new_questions
 
 @router.post(
     "/{question_id}/answer",
@@ -55,8 +146,29 @@ def answer_question(
     db.commit()
     db.refresh(user_answer)
 
-    return user_answer
+# Prepara as próximas questões de forma adaptativa.
+# A resposta já foi salva, então um problema na geração
+# não impede o registro da resposta do estudante.
+    try:
+        adaptive_questions = prepare_adaptive_questions(
+            question=question,
+            user_id=answer_data.user_id,
+            is_correct=is_correct,
+            db=db,
+        )
+    except Exception as exc:
+        print(f"Erro ao preparar questões adaptativas: {exc}")
+        adaptive_questions = []
 
+    return {
+        "id": user_answer.id,
+        "user_id": user_answer.user_id,
+        "question_id": user_answer.question_id,
+        "selected_answer": user_answer.selected_answer,
+        "is_correct": user_answer.is_correct,
+        "answered_at": user_answer.answered_at,
+        "adaptive_questions": adaptive_questions,
+    }
 
 
 @router.get(

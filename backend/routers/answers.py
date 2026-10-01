@@ -16,6 +16,7 @@ from backend.services.ai_question_service import (
     generate_adaptive_questions,
     save_generated_questions,
 )
+from backend.services.topic_normalization import canonical_topic_key
 router = APIRouter(prefix="/questions", tags=["Respostas"])
 
 
@@ -80,13 +81,20 @@ def prepare_adaptive_questions(
         .where(
             Question.material_id == question.material_id,
             Question.difficulty == target_difficulty,
-            Question.topics.any(topic),
             ~answered_question_exists,
         )
-        .limit(3)
     )
 
-    existing_questions = db.scalars(statement).all()
+    candidate_questions = db.scalars(statement).all()
+    topic_key = canonical_topic_key(topic)
+    existing_questions = [
+        candidate
+        for candidate in candidate_questions
+        if any(
+            canonical_topic_key(candidate_topic) == topic_key
+            for candidate_topic in candidate.topics or []
+        )
+    ][:3]
 
 
     # 4. Se já temos 3 questões disponíveis, não precisamos
@@ -212,29 +220,51 @@ def get_user_topic_performance(
     rows = db.execute(statement).all()
 
     topic_stats = {}
+    display_labels = {
+        "custo-benefício": "Custo-benefício",
+        "falácias": "Falácias",
+        "racionalidade": "Racionalidade",
+        "custos irrecuperáveis": "Custos irrecuperáveis",
+    }
 
     for answer, question in rows:
-        for topic in set(question.topics or []):
-            if topic not in topic_stats:
-                topic_stats[topic] = {
+        topics_by_key = {}
+        for original_topic in question.topics or []:
+            topic_key = canonical_topic_key(original_topic)
+            if not topic_key:
+                continue
+            topics_by_key.setdefault(topic_key, set()).add(
+                original_topic.strip()
+            )
+
+        for topic_key, original_labels in topics_by_key.items():
+            if topic_key not in topic_stats:
+                topic_stats[topic_key] = {
                     "total_answers": 0,
                     "correct_answers": 0,
                     "material_ids": set(),
+                    "original_labels": set(),
                 }
 
-            topic_stats[topic]["total_answers"] += 1
+            stats = topic_stats[topic_key]
+            stats["original_labels"].update(original_labels)
+            stats["total_answers"] += 1
 
             if answer.is_correct:
-                topic_stats[topic]["correct_answers"] += 1
+                stats["correct_answers"] += 1
 
             if question.material_id is not None:
-                topic_stats[topic]["material_ids"].add(
+                stats["material_ids"].add(
                     question.material_id
                 )
 
     topics = []
 
-    for topic, stats in sorted(topic_stats.items()):
+    for topic_key, stats in sorted(topic_stats.items()):
+        topic_label = display_labels.get(
+            topic_key,
+            min(stats["original_labels"]),
+        )
         total_answers = stats["total_answers"]
         correct_answers = stats["correct_answers"]
         incorrect_answers = total_answers - correct_answers
@@ -246,7 +276,7 @@ def get_user_topic_performance(
 
         topics.append(
             {
-                "topic": topic,
+                "topic": topic_label,
                 "total_answers": total_answers,
                 "correct_answers": correct_answers,
                 "incorrect_answers": incorrect_answers,

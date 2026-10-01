@@ -26,11 +26,51 @@ type TopicResponse = {
   topics: TopicPerformance[];
 };
 
+type LearningPlanAction =
+  | "reinforce"
+  | "consolidate"
+  | "deepen"
+  | "explore";
+
+type LearningPlanItem = {
+  topic: string;
+  action: LearningPlanAction;
+  priority: number;
+  total_answers: number;
+  correct_answers: number;
+  incorrect_answers: number;
+  accuracy: number | null;
+  has_sufficient_data: boolean;
+  material_ids: string[];
+  requires_material_choice: boolean;
+  reason: string;
+};
+
+type LearningPlanResponse = {
+  user_id: string;
+  minimum_answers_for_scored_actions: number;
+  items: LearningPlanItem[];
+};
+
+const learningPlanActionGroups: {
+  action: LearningPlanAction;
+  label: string;
+}[] = [
+  { action: "reinforce", label: "Reforçar" },
+  { action: "consolidate", label: "Consolidar" },
+  { action: "deepen", label: "Aprofundar" },
+  { action: "explore", label: "Explorar" },
+];
+
 export default function PerformanceDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [topics, setTopics] = useState<TopicPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [learningPlan, setLearningPlan] =
+    useState<LearningPlanResponse | null>(null);
+  const [learningPlanLoading, setLearningPlanLoading] = useState(true);
+  const [learningPlanError, setLearningPlanError] = useState(false);
 
   useEffect(() => {
     async function loadPerformance() {
@@ -63,6 +103,31 @@ export default function PerformanceDashboard() {
     }
 
     loadPerformance();
+  }, []);
+
+  useEffect(() => {
+    async function loadLearningPlan() {
+      try {
+        const userId = getUserId();
+        const response = await fetch(
+          `http://127.0.0.1:8000/learning-plan/${userId}`,
+          { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+          throw new Error("Não foi possível carregar o plano de aprendizagem.");
+        }
+
+        const planData: LearningPlanResponse = await response.json();
+        setLearningPlan(planData);
+      } catch {
+        setLearningPlanError(true);
+      } finally {
+        setLearningPlanLoading(false);
+      }
+    }
+
+    loadLearningPlan();
   }, []);
 
   if (loading) {
@@ -116,6 +181,103 @@ export default function PerformanceDashboard() {
           </p>
         </div>
       </div>
+
+      <section className="rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-zinc-900">
+          Plano de aprendizagem
+        </h2>
+
+        {learningPlanLoading ? (
+          <p className="mt-4 text-sm text-zinc-500">
+            Carregando plano de aprendizagem...
+          </p>
+        ) : learningPlanError || !learningPlan ? (
+          <p className="mt-4 text-zinc-500">
+            Não foi possível carregar o plano de aprendizagem.
+          </p>
+        ) : learningPlan.items.length === 0 ? (
+          <p className="mt-4 text-zinc-500">
+            Ainda não há tópicos com material disponível para incluir no plano.
+          </p>
+        ) : (
+          <div className="mt-5 space-y-6">
+            {learningPlanActionGroups.map((group) => {
+              const items = learningPlan.items.filter(
+                (item) => item.action === group.action
+              );
+
+              if (items.length === 0) {
+                return null;
+              }
+
+              return (
+                <div key={group.action}>
+                  <h3 className="text-sm font-semibold text-zinc-700">
+                    {group.label}
+                  </h3>
+                  {group.action === "explore" && (
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Estes tópicos ainda são pouco conhecidos pelo sistema.
+                    </p>
+                  )}
+                  <div className="mt-2 space-y-3">
+                    {items.map((item) => (
+                      <article
+                        key={`${item.topic}-${item.priority}`}
+                        className="rounded-lg border border-zinc-200 p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-medium text-zinc-900">
+                              {item.topic}
+                            </p>
+                            <p className="mt-1 text-sm text-zinc-500">
+                              {item.total_answers} respostas
+                              {item.accuracy !== null && (
+                                <>
+                                  {" · "}
+                                  {item.accuracy.toFixed(1)}% de precisão
+                                </>
+                              )}
+                            </p>
+                            {group.action === "explore" && (
+                              <p className="mt-2 text-sm text-zinc-600">
+                                Ainda há poucos dados para avaliar este tópico.
+                              </p>
+                            )}
+                            <p className="mt-2 text-sm text-zinc-600">
+                              {item.reason}
+                            </p>
+                          </div>
+
+                          <div className="sm:shrink-0">
+                            {item.material_ids.length === 1 ? (
+                              <Link
+                                href={`/materials/${item.material_ids[0]}?topic=${encodeURIComponent(item.topic)}`}
+                                className="inline-block rounded-lg bg-zinc-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-zinc-800"
+                              >
+                                Estudar este tópico
+                              </Link>
+                            ) : item.material_ids.length > 1 ? (
+                              <p className="text-sm text-zinc-600">
+                                Escolha um material para estudar este tópico.
+                              </p>
+                            ) : (
+                              <p className="text-sm text-zinc-500">
+                                Nenhum material disponível para este tópico.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold text-zinc-900">

@@ -1,12 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
 from backend.models.entities import Question, UserAnswer
 from backend.models.schemas import QuestionCreate, QuestionResponse, QuestionStudyResponse
+from backend.services.topic_normalization import canonical_topic_key
 
 router = APIRouter(prefix="/questions", tags=["Questões"])
 
@@ -94,100 +95,94 @@ def list_adaptive_questions(
     material_id: UUID,
     user_id: UUID,
     topic: str | None = None,
+    limit: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
 ):
-    questions_statement = (
-        select(Question)
-        .where(Question.material_id == material_id)
-        .order_by(Question.created_at.desc())
-    )
+    topic_filter_key = canonical_topic_key(topic) if topic is not None else ""
 
-    questions = db.scalars(questions_statement).all()
-
-    if topic is not None:
-        normalized_topic = topic.strip()
-        if normalized_topic:
-            questions = [
-                question
-                for question in questions
-                if normalized_topic in (question.topics or [])
-            ]
-
-    if not questions:
-        return []
-
-    question_ids = [question.id for question in questions]
-
-    material_answers_statement = (
-        select(UserAnswer)
-        .where(
-            UserAnswer.user_id == user_id,
-            UserAnswer.question_id.in_(question_ids),
+    ranked_answers = (
+        select(
+            UserAnswer.question_id.label("question_id"),
+            UserAnswer.is_correct.label("is_correct"),
+            UserAnswer.answered_at.label("answered_at"),
+            Question.topics.label("topics"),
+            func.row_number()
+            .over(
+                partition_by=UserAnswer.question_id,
+                order_by=UserAnswer.answered_at.desc(),
+            )
+            .label("answer_rank"),
         )
-        .order_by(UserAnswer.answered_at.desc())
-    )
-
-    material_answers = db.scalars(material_answers_statement).all()
-
-    latest_answers = {}
-
-    for answer in material_answers:
-        if answer.question_id not in latest_answers:
-            latest_answers[answer.question_id] = answer
-
-    all_answers_statement = (
-        select(UserAnswer, Question)
         .join(Question, UserAnswer.question_id == Question.id)
         .where(UserAnswer.user_id == user_id)
-        .order_by(UserAnswer.answered_at.desc())
+        .subquery()
     )
 
-    all_answer_rows = db.execute(all_answers_statement).all()
-
-    latest_user_answers = {}
-
-    for answer, question in all_answer_rows:
-        if answer.question_id not in latest_user_answers:
-            latest_user_answers[answer.question_id] = (answer, question)
+    latest_answers_statement = select(
+        ranked_answers.c.question_id,
+        ranked_answers.c.is_correct,
+        ranked_answers.c.answered_at,
+        ranked_answers.c.topics,
+    ).where(ranked_answers.c.answer_rank == 1)
+    latest_user_answers = db.execute(latest_answers_statement).all()
+    latest_answers = {
+        answer.question_id: answer
+        for answer in latest_user_answers
+    }
 
     topic_stats = {}
 
-    for answer, question in latest_user_answers.values():
-        for topic in set(question.topics or []):
-            if topic not in topic_stats:
-                topic_stats[topic] = {
+    for answer in latest_user_answers:
+        topic_keys = {
+            canonical_topic_key(topic)
+            for topic in answer.topics or []
+        }
+        topic_keys.discard("")
+
+        for topic_key in topic_keys:
+            if topic_key not in topic_stats:
+                topic_stats[topic_key] = {
                     "total": 0,
                     "correct": 0,
                 }
 
-            topic_stats[topic]["total"] += 1
+            topic_stats[topic_key]["total"] += 1
 
             if answer.is_correct:
-                topic_stats[topic]["correct"] += 1
+                topic_stats[topic_key]["correct"] += 1
 
     topic_accuracy = {}
 
-    for topic, stats in topic_stats.items():
+    for topic_key, stats in topic_stats.items():
         total = stats["total"]
         correct = stats["correct"]
 
-        topic_accuracy[topic] = (
+        topic_accuracy[topic_key] = (
             correct / total
             if total > 0
             else 0.5
         )
 
+    question_accuracy_cache = {}
+
     def question_topic_accuracy(question):
+        if question.question_id in question_accuracy_cache:
+            return question_accuracy_cache[question.question_id]
+
+        topic_keys = {
+            canonical_topic_key(topic)
+            for topic in question.topics or []
+        }
+        topic_keys.discard("")
         accuracies = [
-            topic_accuracy[topic]
-            for topic in set(question.topics or [])
-            if topic in topic_accuracy
+            topic_accuracy[topic_key]
+            for topic_key in topic_keys
+            if topic_key in topic_accuracy
         ]
 
-        if not accuracies:
-            return 0.5
-
-        return min(accuracies)
+        accuracy = min(accuracies) if accuracies else 0.5
+        question_accuracy_cache[question.question_id] = accuracy
+        return accuracy
 
     difficulty_rank = {
         "easy": 0,
@@ -207,12 +202,45 @@ def list_adaptive_questions(
         target_rank = target_difficulty(question_topic_accuracy(question))
         return abs(current_rank - target_rank)
 
+    def wrong_question_sort_key(question):
+        return (
+            question_topic_accuracy(question),
+            difficulty_distance(question),
+            -latest_answers[question.question_id].answered_at.timestamp(),
+        )
+
+    def unanswered_question_sort_key(question):
+        return (
+            question_topic_accuracy(question),
+            difficulty_distance(question),
+            -question.created_at.timestamp(),
+        )
+
+    correct_question_sort_key = wrong_question_sort_key
+
     wrong_questions = []
     unanswered_questions = []
     correct_questions = []
+    candidate_statement = (
+        select(
+            Question.id.label("question_id"),
+            Question.topics.label("topics"),
+            Question.difficulty.label("difficulty"),
+            Question.created_at.label("created_at"),
+        )
+        .where(Question.material_id == material_id)
+        .order_by(Question.created_at.desc())
+    )
+    candidate_rows = db.execute(candidate_statement).all()
 
-    for question in questions:
-        latest_answer = latest_answers.get(question.id)
+    for question in candidate_rows:
+        if topic_filter_key and not any(
+            canonical_topic_key(question_topic) == topic_filter_key
+            for question_topic in question.topics or []
+        ):
+            continue
+
+        latest_answer = latest_answers.get(question.question_id)
 
         if latest_answer is None:
             unanswered_questions.append(question)
@@ -221,35 +249,51 @@ def list_adaptive_questions(
         else:
             correct_questions.append(question)
 
-    wrong_questions.sort(
-        key=lambda question: (
-            question_topic_accuracy(question),
-            difficulty_distance(question),
-            -latest_answers[question.id].answered_at.timestamp(),
-        )
-    )
-
-    unanswered_questions.sort(
-        key=lambda question: (
-            question_topic_accuracy(question),
-            difficulty_distance(question),
-            -question.created_at.timestamp(),
-        )
-    )
-
-    correct_questions.sort(
-        key=lambda question: (
-            question_topic_accuracy(question),
-            difficulty_distance(question),
-            -latest_answers[question.id].answered_at.timestamp(),
-        )
-    )
-
-    return (
+    wrong_questions.sort(key=wrong_question_sort_key)
+    unanswered_questions.sort(key=unanswered_question_sort_key)
+    correct_questions.sort(key=correct_question_sort_key)
+    ordered_questions = (
         wrong_questions
         + unanswered_questions
         + correct_questions
     )
+    if limit is not None:
+        ordered_questions = ordered_questions[:limit]
+
+    if not ordered_questions:
+        return []
+
+    ordered_question_ids = [
+        question.question_id
+        for question in ordered_questions
+    ]
+    response_statement = select(
+        Question.id.label("id"),
+        Question.material_id.label("material_id"),
+        Question.question_text.label("question_text"),
+        Question.options.label("options"),
+        Question.topics.label("topics"),
+        Question.difficulty.label("difficulty"),
+        Question.explanation.label("explanation"),
+    ).where(Question.id.in_(ordered_question_ids))
+    response_rows = db.execute(response_statement).all()
+    response_by_id = {
+        row.id: {
+            "id": row.id,
+            "material_id": row.material_id,
+            "question_text": row.question_text,
+            "options": row.options,
+            "topics": row.topics,
+            "difficulty": row.difficulty,
+            "explanation": row.explanation,
+        }
+        for row in response_rows
+    }
+
+    return [
+        response_by_id[question_id]
+        for question_id in ordered_question_ids
+    ]
 
 
 @router.get(

@@ -97,6 +97,26 @@ class UserTopicPerformanceResponse(BaseModel):
     topics: list[TopicPerformance]
 
 
+class LearningPlanItemResponse(BaseModel):
+    topic: str
+    action: Literal["reinforce", "consolidate", "deepen", "explore"]
+    priority: int
+    total_answers: int
+    correct_answers: int
+    incorrect_answers: int
+    accuracy: float | None
+    has_sufficient_data: bool
+    material_ids: list[UUID]
+    requires_material_choice: bool
+    reason: str
+
+
+class LearningPlanResponse(BaseModel):
+    user_id: UUID
+    minimum_answers_for_scored_actions: int
+    items: list[LearningPlanItemResponse]
+
+
 class QuestionStudyResponse(BaseModel):
     id: UUID
     material_id: UUID | None

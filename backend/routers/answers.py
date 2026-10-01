@@ -212,7 +212,11 @@ def get_user_topic_performance(
     db: Session = Depends(get_db),
 ):
     statement = (
-        select(UserAnswer, Question)
+        select(
+            UserAnswer.is_correct,
+            Question.topics,
+            Question.material_id,
+        )
         .join(Question, UserAnswer.question_id == Question.id)
         .where(UserAnswer.user_id == user_id)
     )
@@ -227,9 +231,9 @@ def get_user_topic_performance(
         "custos irrecuperáveis": "Custos irrecuperáveis",
     }
 
-    for answer, question in rows:
+    for is_correct, question_topics, material_id in rows:
         topics_by_key = {}
-        for original_topic in question.topics or []:
+        for original_topic in question_topics or []:
             topic_key = canonical_topic_key(original_topic)
             if not topic_key:
                 continue
@@ -250,12 +254,12 @@ def get_user_topic_performance(
             stats["original_labels"].update(original_labels)
             stats["total_answers"] += 1
 
-            if answer.is_correct:
+            if is_correct:
                 stats["correct_answers"] += 1
 
-            if question.material_id is not None:
+            if material_id is not None:
                 stats["material_ids"].add(
-                    question.material_id
+                    material_id
                 )
 
     topics = []

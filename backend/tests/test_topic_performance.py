@@ -19,8 +19,18 @@ class FakeResult:
 class FakeSession:
     def __init__(self):
         self.rows = []
+        self.selected_column_sets = []
 
     def execute(self, statement):
+        selected_columns = set(statement.selected_columns.keys())
+        self.selected_column_sets.append(selected_columns)
+        if selected_columns == {"is_correct", "topics", "material_id"}:
+            return FakeResult(
+                [
+                    (answer.is_correct, question.topics, question.material_id)
+                    for answer, question in self.rows
+                ]
+            )
         return FakeResult(self.rows)
 
 
@@ -61,6 +71,16 @@ class TopicPerformanceEndpointTests(unittest.TestCase):
         response = self.client.get(f"/questions/user/{self.user_id}/topics")
         self.assertEqual(response.status_code, 200)
         return response.json()["topics"]
+
+    def test_query_projects_only_fields_used_by_endpoint(self):
+        self.add_question(["Racionalidade"], uuid4(), [True])
+
+        self.get_topics()
+
+        self.assertEqual(
+            self.db.selected_column_sets,
+            [{"is_correct", "topics", "material_id"}],
+        )
 
     def test_cosmetic_aliases_group_and_material_ids_are_deduplicated(self):
         first_material = uuid4()

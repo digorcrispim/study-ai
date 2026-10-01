@@ -19,9 +19,55 @@ class FakeResult:
 class FakeSession:
     def __init__(self, rows=()):
         self.rows = list(rows)
+        self.user_id = None
+        self.statements = []
+        self.result_rows = []
 
     def execute(self, statement):
-        return FakeResult(self.rows)
+        self.statements.append(statement)
+        selected_columns = set(statement.selected_columns.keys())
+        if selected_columns == {
+            "question_id",
+            "topics",
+            "material_id",
+            "total_answers",
+            "correct_answers",
+        }:
+            questions = {}
+            answers_by_question = {}
+            for question, answer in self.rows:
+                questions[question.id] = question
+                if answer is not None and answer.user_id == self.user_id:
+                    answers_by_question.setdefault(question.id, []).append(answer)
+
+            self.result_rows = [
+                (
+                    question.id,
+                    question.topics,
+                    question.material_id,
+                    len(answers_by_question.get(question.id, [])),
+                    sum(
+                        answer.is_correct
+                        for answer in answers_by_question.get(question.id, [])
+                    ),
+                )
+                for question in questions.values()
+            ]
+        else:
+            questions = {}
+            answers_by_question = {}
+            for question, answer in self.rows:
+                questions[question.id] = question
+                if answer is not None and answer.user_id == self.user_id:
+                    answers_by_question.setdefault(question.id, []).append(answer)
+
+            self.result_rows = [
+                (question, answer)
+                for question_id, question in questions.items()
+                for answer in answers_by_question.get(question_id, [None])
+            ]
+
+        return FakeResult(self.result_rows)
 
 
 class LearningPlanEndpointTests(unittest.TestCase):
@@ -32,6 +78,7 @@ class LearningPlanEndpointTests(unittest.TestCase):
         app.dependency_overrides[get_db] = lambda: self.db
         self.client = TestClient(app)
         self.user_id = uuid4()
+        self.db.user_id = self.user_id
 
     def tearDown(self):
         self.client.close()
@@ -82,6 +129,46 @@ class LearningPlanEndpointTests(unittest.TestCase):
         self.assertIsNone(item["accuracy"])
         self.assertFalse(item["has_sufficient_data"])
         self.assertEqual(item["material_ids"], [str(material_id)])
+
+    def test_query_aggregates_user_attempts_per_question(self):
+        material_id = uuid4()
+        question = self.add_question(
+            ["Racionalidade", "racionalidade", "Tema", "Racionalidade"],
+            material_id,
+            [True, False],
+        )
+        other_user_answer = UserAnswer(
+            id=uuid4(),
+            user_id=uuid4(),
+            question_id=question.id,
+            selected_answer=0,
+            is_correct=True,
+        )
+        self.db.rows.append((question, other_user_answer))
+        self.add_question(["Sem histórico"], material_id)
+
+        items = {item["topic"]: item for item in self.get_items()}
+
+        statement = self.db.statements[-1]
+        self.assertEqual(
+            set(statement.selected_columns.keys()),
+            {
+                "question_id",
+                "topics",
+                "material_id",
+                "total_answers",
+                "correct_answers",
+            },
+        )
+        self.assertEqual(len(self.db.result_rows), 2)
+        self.assertEqual(len(statement._group_by_clauses), 3)
+        self.assertIn("user_answers.user_id =", str(statement))
+        self.assertEqual(items["Racionalidade"]["total_answers"], 2)
+        self.assertEqual(items["Racionalidade"]["correct_answers"], 1)
+        self.assertEqual(items["Tema"]["total_answers"], 2)
+        self.assertEqual(items["Tema"]["correct_answers"], 1)
+        self.assertEqual(items["Sem histórico"]["total_answers"], 0)
+        self.assertEqual(items["Sem histórico"]["action"], "explore")
 
     def test_empty_catalog_returns_no_items(self):
         self.assertEqual(self.get_items(), [])

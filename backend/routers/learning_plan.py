@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
@@ -40,7 +40,21 @@ def get_learning_plan(
     db: Session = Depends(get_db),
 ):
     statement = (
-        select(Question, UserAnswer)
+        select(
+            Question.id.label("question_id"),
+            Question.topics.label("topics"),
+            Question.material_id.label("material_id"),
+            func.count(UserAnswer.id).label("total_answers"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (UserAnswer.is_correct, 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("correct_answers"),
+        )
         .outerjoin(
             UserAnswer,
             and_(
@@ -48,14 +62,15 @@ def get_learning_plan(
                 UserAnswer.user_id == user_id,
             ),
         )
+        .group_by(Question.id, Question.topics, Question.material_id)
     )
     rows = db.execute(statement).all()
 
     topic_stats = {}
 
-    for question, answer in rows:
+    for _, question_topics, material_id, total_answers, correct_answers in rows:
         topic_labels_by_key = {}
-        for original_topic in question.topics or []:
+        for original_topic in question_topics or []:
             topic_key = canonical_topic_key(original_topic)
             if not topic_key:
                 continue
@@ -74,14 +89,11 @@ def get_learning_plan(
                 },
             )
             stats["original_labels"].update(original_labels)
+            stats["total_answers"] += total_answers
+            stats["correct_answers"] += correct_answers
 
-            if question.material_id is not None:
-                stats["material_ids"].add(question.material_id)
-
-            if answer is not None:
-                stats["total_answers"] += 1
-                if answer.is_correct:
-                    stats["correct_answers"] += 1
+            if material_id is not None:
+                stats["material_ids"].add(material_id)
 
     ordered_items = []
 

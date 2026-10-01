@@ -56,7 +56,7 @@ export default function StudyQuiz({
             ? ""
             : `?topic=${encodeURIComponent(topic)}`;
         const response = await fetch(
-          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}${topicQuery}`,
+          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}${topicQuery}${topicQuery ? "&" : "?"}limit=5`,
           {
             cache: "no-store",
           }

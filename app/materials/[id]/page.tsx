@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import HomeButton from "../../components/HomeButton";
 import StudyQuiz from "./StudyQuiz";
 
 type Material = {
@@ -81,7 +82,8 @@ export default async function StudyPage({
     <main className="min-h-screen bg-zinc-50 p-8">
       <div className="mx-auto max-w-4xl">
         <header className="mb-8">
-          <p className="text-sm font-medium text-zinc-500">
+          <HomeButton />
+          <p className="mt-4 text-sm font-medium text-zinc-500">
             Modo de estudo
           </p>
 

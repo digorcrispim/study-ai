@@ -1,3 +1,4 @@
+import HomeButton from "../components/HomeButton";
 import HistoryDashboard from "./HistoryDashboard";
 
 export default function HistoryPage() {
@@ -5,7 +6,8 @@ export default function HistoryPage() {
     <main className="min-h-screen bg-zinc-50 p-8">
       <div className="mx-auto max-w-4xl">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold text-zinc-900">
+          <HomeButton />
+          <h1 className="mt-4 text-3xl font-bold text-zinc-900">
             Histórico de estudos
           </h1>
 

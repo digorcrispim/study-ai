@@ -1,3 +1,4 @@
+import HomeButton from "../components/HomeButton";
 import Link from "next/link";
 import UploadForm from "./UploadForm";
 
@@ -6,9 +7,10 @@ export default function UploadPage() {
     <main className="min-h-screen bg-zinc-50 p-8">
       <div className="mx-auto max-w-4xl">
         <header className="mb-8">
+          <HomeButton />
           <Link
             href="/"
-            className="text-sm font-medium text-zinc-500 hover:text-zinc-900"
+            className="mt-2 block text-sm font-medium text-zinc-500 hover:text-zinc-900"
           >
             ← Voltar para materiais
           </Link>

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getUserId } from "@/lib/user";
+import { updateLearningPlanItemStatus } from "@/lib/api";
 
 type StudyQuestion = {
   id: string;
@@ -45,6 +47,22 @@ export default function StudyQuiz({
   const [answered, setAnswered] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sessionAnsweredIds, setSessionAnsweredIds] = useState<string[]>([]);
+
+  const searchParams = useSearchParams();
+  const planItemId = searchParams.get("plan_item_id");
+  const planItemStatusUpdated = useRef(false);
+
+  useEffect(() => {
+    if (!planItemId || planItemStatusUpdated.current) {
+      return;
+    }
+
+    planItemStatusUpdated.current = true;
+
+    updateLearningPlanItemStatus(planItemId, "in_progress").catch((error) => {
+      console.error("Failed to update plan item status:", error);
+    });
+  }, [planItemId]);
 
   useEffect(() => {
     let cancelled = false;

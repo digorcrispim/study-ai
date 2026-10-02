@@ -100,7 +100,7 @@ function PlanItemCard({
           )}
           {item.material_id !== null && (
             <Link
-              href={`/materials/${item.material_id}?topic=${encodeURIComponent(item.topic)}`}
+              href={`/materials/${item.material_id}?topic=${encodeURIComponent(item.topic)}&plan_item_id=${item.id}`}
               className="mt-3 inline-block rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
             >
               Estudar este tópico

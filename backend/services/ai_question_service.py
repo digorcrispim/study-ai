@@ -1,4 +1,8 @@
 from backend.services.openai_service import client, MODEL
+from backend.services.ollama_service import (
+    generate_with_ollama,
+    review_with_ollama,
+)
 from backend.services.ai_schemas import (
     GeneratedQuestionSet,
     QuestionQualityReviewSet,
@@ -9,6 +13,9 @@ def generate_questions(
     material_title: str,
     raw_text: str,
     number_of_questions: int = 5,
+    topic: str = "Geral",
+    difficulty: str = "medium",
+    objective: str = "Garantir a fixação dos conceitos fundamentais do material.",
 ) -> GeneratedQuestionSet:
     prompt = f"""
 Você é um gerador de questões para uma plataforma de estudos.
@@ -19,30 +26,60 @@ Material:
 Conteúdo do material:
 {raw_text}
 
-Tarefa:
-Gere exatamente {number_of_questions} questões de múltipla escolha
-baseadas exclusivamente no conteúdo fornecido.
+Tópico específico:
+{topic}
 
-Regras:
-- Cada questão deve ter 4 alternativas.
-- Use as chaves "0", "1", "2" e "3" nas alternativas.
-- "correct_answer" deve ser o índice da alternativa correta.
-- A explicação deve justificar a resposta correta com base no conteúdo.
-- Informe de 1 a 3 tópicos por questão.
-- Use apenas estas dificuldades: easy, medium ou hard.
-- Não invente informações que não estejam sustentadas pelo conteúdo.
+Dificuldade desejada:
+{difficulty}
+
+Objetivo pedagógico:
+{objective}
+
+Tarefa:
+Gere exatamente {number_of_questions} questões de múltipla escolha sobre o tópico "{topic}".
+
+Regras ESTRITAS de Formatação JSON:
+Você deve retornar UM ÚNICO objeto JSON válido, sem markdown, sem texto extra (nem mesmo ```json), seguindo EXATAMENTE esta estrutura de schema:
+{{
+  "questions": [
+    {{
+      "question_text": "O enunciado da pergunta aqui",
+      "option_0": "Texto da alternativa A",
+      "option_1": "Texto da alternativa B",
+      "option_2": "Texto da alternativa C",
+      "option_3": "Texto da alternativa D",
+      "correct_answer": 0,
+      "explanation": "Explicação detalhada do porquê esta é a correta, baseada no material.",
+      "topics": ["{topic}"],
+      "difficulty": "{difficulty}"
+    }}
+  ]
+}}
+
+Regras de Conteúdo:
+1. Baseie-se exclusivamente no conteúdo fornecido.
+2. "correct_answer" deve ser um INTEIRO de 0 a 3, representando o índice da alternativa correta.
+3. As chaves das alternativas DEVEM ser exatamente "option_0", "option_1", "option_2", "option_3" (strings).
+4. "topics" deve ser uma lista de strings, contendo pelo menos o tópico "{topic}".
+5. "difficulty" deve ser exatamente "{difficulty}" (easy, medium ou hard).
+6. Não invente informações que não estejam sustentadas pelo material.
 """
 
-    response = client.responses.parse(
-        model=MODEL,
-        input=prompt,
-        text_format=GeneratedQuestionSet,
-    )
+    try:
+        response = client.responses.parse(
+            model=MODEL,
+            input=prompt,
+            text_format=GeneratedQuestionSet,
+        )
 
-    if response.output_parsed is None:
-        raise RuntimeError("A IA não retornou questões estruturadas.")
+        if response.output_parsed is None:
+            raise RuntimeError("A IA não retornou questões estruturadas.")
 
-    return validate_generated_questions(response.output_parsed)
+        generated = response.output_parsed
+    except Exception:
+        generated = generate_with_ollama(prompt)
+
+    return validate_generated_questions(generated)
 
 
 def save_generated_questions(
@@ -50,6 +87,7 @@ def save_generated_questions(
     generated_questions,
     db,
 ):
+    from sqlalchemy import select
     from backend.models.entities import Question
 
     saved_questions = []
@@ -73,12 +111,20 @@ def save_generated_questions(
         db.add(question)
         saved_questions.append(question)
 
+    if not saved_questions:
+        return []
+
+    db.flush()
     db.commit()
 
-    for question in saved_questions:
-        db.refresh(question)
+    question_ids = [q.id for q in saved_questions]
 
-    return saved_questions
+    reloaded_questions = db.scalars(
+        select(Question).where(Question.id.in_(question_ids))
+    ).all()
+
+    id_to_question = {q.id: q for q in reloaded_questions}
+    return [id_to_question[q_id] for q_id in question_ids]
 
 
 def validate_generated_questions(generated_questions):
@@ -162,9 +208,10 @@ Dificuldade: {question.difficulty}
 """
         )
 
+    num_questions = len(generated_questions.questions)
+
     prompt = f"""
-Você é um avaliador de qualidade de questões para uma plataforma
-de estudos.
+Você é um avaliador de qualidade de questões para uma plataforma de estudos.
 
 Material:
 {material_title}
@@ -172,36 +219,65 @@ Material:
 Conteúdo original:
 {raw_text}
 
+Tarefa:
 Avalie cada questão abaixo exclusivamente com base no conteúdo original.
+Você deve avaliar exatamente {num_questions} questão(ões), gerando uma avaliação para cada questão na mesma ordem.
 
-Para cada questão, determine:
-- supported_by_material: a questão e sua resposta correta estão
-  sustentadas pelo conteúdo?
-- single_correct_answer: existe uma única alternativa correta?
-- clear_and_unambiguous: o enunciado é claro e não ambíguo?
-- plausible_distractors: as alternativas incorretas são plausíveis?
-- is_approved: a questão está adequada para entrar no banco de questões?
-- reason: explique brevemente a decisão.
+Regras ESTRITAS de Formatação JSON:
+Você deve retornar UM ÚNICO objeto JSON válido, sem markdown e sem texto extra.
 
-Uma questão só deve ser aprovada quando estiver sustentada pelo material,
-tiver uma única resposta correta, for clara e tiver distratores plausíveis.
+A raiz do JSON DEVE possuir exatamente a chave "reviews".
+A chave "reviews" DEVE conter um array.
+O array "reviews" DEVE conter exatamente {num_questions} objeto(s).
+
+Estrutura obrigatória:
+{{
+  "reviews": [
+    {{
+      "supported_by_material": true,
+      "single_correct_answer": true,
+      "clear_and_unambiguous": true,
+      "plausible_distractors": true,
+      "is_approved": true,
+      "reason": "Explicação breve da decisão."
+    }}
+  ]
+}}
+
+Regras de Avaliação:
+1. Para cada questão:
+   - supported_by_material: avalie se a questão e a resposta correta são sustentadas pelo material.
+   - single_correct_answer: verifique se existe uma única alternativa correta.
+   - clear_and_unambiguous: verifique se o enunciado é claro e não ambíguo.
+   - plausible_distractors: verifique se as alternativas incorretas são plausíveis.
+   - is_approved: use true somente quando todos os critérios necessários forem atendidos.
+   - reason: explique brevemente a decisão com base no material.
+
+2. A ordem das avaliações DEVE corresponder exatamente à ordem das questões recebidas.
+
+3. Não adicione campos além dos especificados.
 
 Questões para avaliação:
 {"".join(questions_text)}
 """
 
-    response = client.responses.parse(
-        model=MODEL,
-        input=prompt,
-        text_format=QuestionQualityReviewSet,
-    )
-
-    if response.output_parsed is None:
-        raise RuntimeError(
-            "A IA não retornou a avaliação das questões."
+    try:
+        response = client.responses.parse(
+            model=MODEL,
+            input=prompt,
+            text_format=QuestionQualityReviewSet,
         )
 
-    if len(response.output_parsed.reviews) != len(
+        if response.output_parsed is None:
+            raise RuntimeError(
+                "A IA não retornou a avaliação das questões."
+            )
+
+        review_set = response.output_parsed
+    except Exception:
+        review_set = review_with_ollama(prompt)
+
+    if len(review_set.reviews) != len(
         generated_questions.questions
     ):
         raise RuntimeError(
@@ -209,7 +285,7 @@ Questões para avaliação:
             "da quantidade de questões."
         )
 
-    return response.output_parsed
+    return review_set
 
 
 def filter_approved_questions(
@@ -286,7 +362,7 @@ def generate_adaptive_questions(
         """
 
     prompt = f"""
-Você é um gerador de questões adaptativas para uma plataforma de estudos.
+Você é um gerador de questões para uma plataforma de estudos.
 
 Material:
 {material_title}
@@ -304,41 +380,59 @@ Objetivo pedagógico:
 {objective}
 
 Tarefa:
-Gere exatamente {number_of_questions} questões de múltipla escolha
-sobre o tópico "{topic}".
+Gere exatamente {number_of_questions} questões de múltipla escolha sobre o tópico "{topic}".
 
-Regras:
-- Baseie-se exclusivamente no conteúdo fornecido.
-- Cada questão deve ter exatamente 4 alternativas.
-- Use as chaves "0", "1", "2" e "3" nas alternativas.
-- "correct_answer" deve ser o índice da alternativa correta.
-- A explicação deve justificar a resposta correta com base no material.
-- Informe de 1 a 3 tópicos por questão.
-- Use somente a dificuldade "{difficulty}".
-- O tópico "{topic}" deve aparecer entre os tópicos da questão.
-- Não repita simplesmente a pergunta original.
-- Não invente informações que não estejam sustentadas pelo material.
+Regras ESTRITAS de Formatação JSON:
+Você deve retornar UM ÚNICO objeto JSON válido, sem markdown, sem texto extra (nem mesmo ```json), seguindo EXATAMENTE esta estrutura de schema:
+{{
+  "questions": [
+    {{
+      "question_text": "O enunciado da pergunta aqui",
+      "option_0": "Texto da alternativa A",
+      "option_1": "Texto da alternativa B",
+      "option_2": "Texto da alternativa C",
+      "option_3": "Texto da alternativa D",
+      "correct_answer": 0,
+      "explanation": "Explicação detalhada do porquê esta é a correta, baseada no material.",
+      "topics": ["{topic}"],
+      "difficulty": "{difficulty}"
+    }}
+  ]
+}}
+
+Regras de Conteúdo:
+1. Baseie-se exclusivamente no conteúdo fornecido.
+2. "correct_answer" deve ser um INTEIRO de 0 a 3, representando o índice da alternativa correta.
+3. As chaves das alternativas DEVEM ser exatamente "option_0", "option_1", "option_2", "option_3" (strings).
+4. "topics" deve ser uma lista de strings, contendo pelo menos o tópico "{topic}".
+5. "difficulty" deve ser exatamente "{difficulty}" (easy, medium ou hard).
+6. Não invente informações que não estejam sustentadas pelo material.
 """
 
-    response = client.responses.parse(
-        model=MODEL,
-        input=prompt,
-        text_format=GeneratedQuestionSet,
-    )
-
-    if response.output_parsed is None:
-        raise RuntimeError(
-            "A IA não retornou questões adaptativas estruturadas."
+    try:
+        response = client.responses.parse(
+            model=MODEL,
+            input=prompt,
+            text_format=GeneratedQuestionSet,
         )
 
-    if len(response.output_parsed.questions) != number_of_questions:
+        if response.output_parsed is None:
+            raise RuntimeError(
+                "A IA não retornou questões adaptativas estruturadas."
+            )
+
+        raw_generated = response.output_parsed
+    except Exception:
+        raw_generated = generate_with_ollama(prompt)
+
+    if len(raw_generated.questions) != number_of_questions:
         raise ValueError(
-            f"A IA retornou {len(response.output_parsed.questions)} "
+            f"A IA retornou {len(raw_generated.questions)} "
             f"questão(ões), mas eram esperadas {number_of_questions}."
         )
 
     generated_questions = validate_generated_questions(
-        response.output_parsed
+        raw_generated
     )
 
     review_set = review_generated_questions(

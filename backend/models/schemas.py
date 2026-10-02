@@ -117,6 +117,33 @@ class LearningPlanResponse(BaseModel):
     items: list[LearningPlanItemResponse]
 
 
+class PersistedLearningPlanItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    topic: str
+    material_id: UUID | None
+    action: str
+    priority: int
+    status: str
+    accuracy_snapshot: float | None
+    total_answers_snapshot: int | None
+    reason: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class PersistedLearningPlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    items: list[PersistedLearningPlanItemResponse] = Field(default_factory=list)
+
+
 class QuestionStudyResponse(BaseModel):
     id: UUID
     material_id: UUID | None

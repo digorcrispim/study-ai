@@ -1,13 +1,16 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
 from backend.models.entities import LearningPlan, LearningPlanItem
 from backend.models.schemas import (
+    LearningPlanItemUpdate,
     LearningPlanResponse,
+    PersistedLearningPlanItemResponse,
     PersistedLearningPlanResponse,
 )
 from backend.services.learning_plan_service import compute_learning_plan
@@ -123,3 +126,38 @@ def get_current_learning_plan(
         )
 
     return plan
+
+
+@router.patch(
+    "/items/{item_id}",
+    response_model=PersistedLearningPlanItemResponse,
+    status_code=status.HTTP_200_OK,
+)
+def update_learning_plan_item_status(
+    item_id: UUID,
+    item_update: LearningPlanItemUpdate,
+    db: Session = Depends(get_db),
+):
+    """Atualiza o status de um item do Plano de Aprendizagem.
+
+    Quando o novo status for "completed", preenche completed_at com o
+    instante atual (UTC). Status inválido é barrado pelo Pydantic (422)
+    e item inexistente retorna 404.
+    """
+    item = db.get(LearningPlanItem, item_id)
+
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Item não encontrado",
+        )
+
+    item.status = item_update.status
+
+    if item_update.status == "completed":
+        item.completed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(item)
+
+    return item

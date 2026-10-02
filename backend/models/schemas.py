@@ -144,6 +144,10 @@ class PersistedLearningPlanResponse(BaseModel):
     items: list[PersistedLearningPlanItemResponse] = Field(default_factory=list)
 
 
+class LearningPlanItemUpdate(BaseModel):
+    status: str = Field(..., pattern="^(pending|in_progress|completed)$")
+
+
 class QuestionStudyResponse(BaseModel):
     id: UUID
     material_id: UUID | None

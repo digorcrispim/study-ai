@@ -2,10 +2,14 @@ import type { PersistedLearningPlanResponse } from "@/lib/types";
 
 export async function getCurrentLearningPlan(
   userId: string
-): Promise<PersistedLearningPlanResponse> {
+): Promise<PersistedLearningPlanResponse | null> {
   const response = await fetch(`/api/learning-plan/${userId}/current`, {
     cache: "no-store",
   });
+
+  if (response.status === 404) {
+    return null;
+  }
 
   if (!response.ok) {
     throw new Error("Failed to fetch learning plan");
@@ -29,4 +33,21 @@ export async function updateLearningPlanItemStatus(
   if (!response.ok) {
     throw new Error("Failed to update learning plan item status");
   }
+}
+
+export async function generateLearningPlan(
+  userId: string
+): Promise<PersistedLearningPlanResponse> {
+  const response = await fetch(`/api/learning-plan/${userId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to generate learning plan");
+  }
+
+  return response.json();
 }

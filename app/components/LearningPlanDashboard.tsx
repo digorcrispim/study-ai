@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getUserId } from "@/lib/user";
-import { getCurrentLearningPlan } from "@/lib/api";
+import { getCurrentLearningPlan, generateLearningPlan } from "@/lib/api";
 import type {
   PersistedLearningPlanItemResponse,
   PersistedLearningPlanResponse,
@@ -120,6 +120,8 @@ export default function LearningPlanDashboard() {
   const [plan, setPlan] = useState<PersistedLearningPlanResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(false);
 
   useEffect(() => {
     async function loadPlan() {
@@ -137,6 +139,25 @@ export default function LearningPlanDashboard() {
     loadPlan();
   }, []);
 
+  async function handleGeneratePlan() {
+    if (generating) {
+      return;
+    }
+
+    setGenerating(true);
+    setGenerateError(false);
+
+    try {
+      const userId = getUserId();
+      const planData = await generateLearningPlan(userId);
+      setPlan(planData);
+    } catch {
+      setGenerateError(true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-xl bg-white p-6 shadow-sm">
@@ -145,10 +166,37 @@ export default function LearningPlanDashboard() {
     );
   }
 
-  if (error || !plan) {
+  if (error) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-zinc-500">
-        Nenhum plano de aprendizagem ativo encontrado.
+        Não foi possível carregar o plano de aprendizagem.
+      </div>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6">
+        <p className="text-zinc-600">
+          Você ainda não possui um plano de aprendizagem.
+        </p>
+
+        <button
+          type="button"
+          onClick={handleGeneratePlan}
+          disabled={generating}
+          className="mt-4 rounded-lg bg-zinc-900 px-5 py-3 font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {generating
+            ? "Gerando seu plano..."
+            : "Gerar meu plano de aprendizagem"}
+        </button>
+
+        {generateError && (
+          <p className="mt-4 text-sm text-red-600">
+            Não foi possível gerar o plano de aprendizagem. Tente novamente.
+          </p>
+        )}
       </div>
     );
   }

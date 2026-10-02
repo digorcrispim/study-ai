@@ -51,6 +51,7 @@ export default function StudyQuiz({
   const searchParams = useSearchParams();
   const planItemId = searchParams.get("plan_item_id");
   const planItemStatusUpdated = useRef(false);
+  const planItemCompleted = useRef(false);
 
   useEffect(() => {
     if (!planItemId || planItemStatusUpdated.current) {
@@ -63,6 +64,18 @@ export default function StudyQuiz({
       console.error("Failed to update plan item status:", error);
     });
   }, [planItemId]);
+
+  useEffect(() => {
+    if (!planItemId || !sessionCompleted || planItemCompleted.current) {
+      return;
+    }
+
+    planItemCompleted.current = true;
+
+    updateLearningPlanItemStatus(planItemId, "completed").catch((error) => {
+      console.error("Failed to update plan item status:", error);
+    });
+  }, [planItemId, sessionCompleted]);
 
   useEffect(() => {
     let cancelled = false;

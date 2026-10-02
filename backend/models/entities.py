@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -38,6 +39,9 @@ class Material(Base):
 
 class Question(Base):
     __tablename__ = "questions"
+    __table_args__ = (
+        Index("ix_questions_material_id_difficulty", "material_id", "difficulty"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -63,6 +67,15 @@ class Question(Base):
 
 class UserAnswer(Base):
     __tablename__ = "user_answers"
+    __table_args__ = (
+        Index("ix_user_answers_user_id_answered_at", "user_id", "answered_at"),
+        Index(
+            "ix_user_answers_user_id_question_id_answered_at",
+            "user_id",
+            "question_id",
+            "answered_at",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -82,6 +95,11 @@ class UserAnswer(Base):
 
 class StudySession(Base):
     __tablename__ = "study_sessions"
+    __table_args__ = (
+        Index("ix_study_sessions_material_id", "material_id"),
+        Index("ix_study_sessions_started_at", "started_at"),
+        Index("ix_study_sessions_user_id_started_at", "user_id", "started_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4

@@ -26,7 +26,7 @@ export default function StudyQuestion({
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/questions/${question.id}/answer`,
+        `/api/questions/${question.id}/answer`,
         {
           method: "POST",
           headers: {

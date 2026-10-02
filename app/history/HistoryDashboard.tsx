@@ -34,12 +34,12 @@ export default function HistoryDashboard() {
 
         const [sessionsResponse, materialsResponse] = await Promise.all([
           fetch(
-            `http://127.0.0.1:8000/sessions/user/${userId}`,
+            `/api/sessions/user/${userId}`,
             {
               cache: "no-store",
             }
           ),
-          fetch("http://127.0.0.1:8000/materials", {
+          fetch("/api/materials", {
             cache: "no-store",
           }),
         ]);

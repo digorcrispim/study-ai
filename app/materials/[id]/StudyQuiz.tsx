@@ -56,7 +56,7 @@ export default function StudyQuiz({
             ? ""
             : `?topic=${encodeURIComponent(topic)}`;
         const response = await fetch(
-          `http://127.0.0.1:8000/questions/material/${materialId}/adaptive/${getUserId()}${topicQuery}${topicQuery ? "&" : "?"}limit=5`,
+          `/api/questions/material/${materialId}/adaptive/${getUserId()}${topicQuery}${topicQuery ? "&" : "?"}limit=5`,
           {
             cache: "no-store",
           }
@@ -72,7 +72,7 @@ export default function StudyQuiz({
           setStudyQuestions(data.slice(0, SESSION_SIZE));
           setCurrentIndex(0);
           const sessionResponse = await fetch(
-            "http://127.0.0.1:8000/sessions",
+            "/api/sessions",
             {
               method: "POST",
               headers: {
@@ -123,7 +123,7 @@ export default function StudyQuiz({
     async function completeSession() {
       try {
         const response = await fetch(
-          `http://127.0.0.1:8000/sessions/${sessionId}/complete`,
+          `/api/sessions/${sessionId}/complete`,
           {
             method: "POST",
             headers: {
@@ -172,7 +172,7 @@ export default function StudyQuiz({
           ? ""
           : `?topic=${encodeURIComponent(topic)}`;
       const response = await fetch(
-        `http://127.0.0.1:8000/questions/${currentQuestion.id}/answer${topicQuery}`,
+        `/api/questions/${currentQuestion.id}/answer${topicQuery}`,
         {
           method: "POST",
           headers: {

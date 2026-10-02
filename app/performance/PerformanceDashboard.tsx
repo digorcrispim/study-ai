@@ -79,10 +79,10 @@ export default function PerformanceDashboard() {
 
         const [summaryResponse, topicsResponse] = await Promise.all([
           fetch(
-            `http://127.0.0.1:8000/questions/user/${userId}/summary`
+            `/api/questions/user/${userId}/summary`
           ),
           fetch(
-            `http://127.0.0.1:8000/questions/user/${userId}/topics`
+            `/api/questions/user/${userId}/topics`
           ),
         ]);
 
@@ -110,7 +110,7 @@ export default function PerformanceDashboard() {
       try {
         const userId = getUserId();
         const response = await fetch(
-          `http://127.0.0.1:8000/learning-plan/${userId}`,
+          `/api/learning-plan/${userId}`,
           { cache: "no-store" }
         );
 

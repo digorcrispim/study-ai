@@ -30,7 +30,7 @@ export default function UploadForm() {
       formData.append("file", file);
 
       const uploadResponse = await fetch(
-        "http://127.0.0.1:8000/materials/upload-pdf",
+        "/api/materials/upload-pdf",
         {
           method: "POST",
           body: formData,
@@ -48,7 +48,7 @@ export default function UploadForm() {
       const material = await uploadResponse.json();
 
       const generationResponse = await fetch(
-        `http://127.0.0.1:8000/materials/${material.id}/generate-questions`,
+        `/api/materials/${material.id}/generate-questions`,
         {
           method: "POST",
           headers: {

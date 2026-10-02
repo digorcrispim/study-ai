@@ -5,10 +5,10 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./StudyQuiz.tsx", import.meta.url), "utf8");
 const urlTemplate = source.match(
-  /`http:\/\/127\.0\.0\.1:8000\/questions\/material\/\$\{materialId\}\/adaptive\/\$\{getUserId\(\)\}\$\{topicQuery\}[^`]*`/
+  /`\/api\/questions\/material\/\$\{materialId\}\/adaptive\/\$\{getUserId\(\)\}\$\{topicQuery\}[^`]*`/
 )?.[0];
 
-assert.ok(urlTemplate, "adaptive fetch URL template was not found");
+assert.ok(urlTemplate, "relative adaptive fetch URL template was not found");
 
 test("adaptive request includes limit=5 with or without a topic", () => {
   const buildUrl = (topicQuery) =>
@@ -20,10 +20,10 @@ test("adaptive request includes limit=5 with or without a topic", () => {
 
   assert.equal(
     buildUrl(""),
-    "http://127.0.0.1:8000/questions/material/material-1/adaptive/user-1?limit=5"
+    "/api/questions/material/material-1/adaptive/user-1?limit=5"
   );
   assert.equal(
     buildUrl("?topic=Costs%20and%20benefits"),
-    "http://127.0.0.1:8000/questions/material/material-1/adaptive/user-1?topic=Costs%20and%20benefits&limit=5"
+    "/api/questions/material/material-1/adaptive/user-1?topic=Costs%20and%20benefits&limit=5"
   );
 });

@@ -40,7 +40,7 @@ const [sessionId, setSessionId] = useState<string | null>(null);
     async function loadReviewQuestions() {
       try {
         const response = await fetch(
-          `http://127.0.0.1:8000/questions/material/${materialId}/review/${getUserId()}`,
+          `/api/questions/material/${materialId}/review/${getUserId()}`,
           {
             cache: "no-store",
           }
@@ -65,7 +65,7 @@ if (data.length > 0) {
 
           sessionCreationStarted.current = true;
           const sessionResponse = await fetch(
-            "http://127.0.0.1:8000/sessions",
+            "/api/sessions",
             {
               method: "POST",
               headers: {
@@ -109,7 +109,7 @@ if (data.length > 0) {
     async function completeSession() {
       try {
         const response = await fetch(
-          `http://127.0.0.1:8000/sessions/${sessionId}/complete`,
+          `/api/sessions/${sessionId}/complete`,
           {
             method: "POST",
             headers: {
@@ -159,7 +159,7 @@ if (data.length > 0) {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/questions/${currentQuestion.id}/answer`,
+        `/api/questions/${currentQuestion.id}/answer`,
         {
           method: "POST",
           headers: {

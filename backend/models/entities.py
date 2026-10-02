@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import Uuid
 
 
@@ -127,4 +127,72 @@ class StudySession(Base):
     )
     accuracy: Mapped[float] = mapped_column(
         nullable=False, default=0.0
+    )
+
+
+class LearningPlan(Base):
+    __tablename__ = "learning_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    items = relationship(
+        "LearningPlanItem",
+        back_populates="plan",
+        cascade="all, delete-orphan",
+    )
+
+
+class LearningPlanItem(Base):
+    __tablename__ = "learning_plan_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    learning_plan_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("learning_plans.id"),
+        nullable=False,
+    )
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    material_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )
+    accuracy_snapshot: Mapped[float | None] = mapped_column(
+        nullable=True
+    )
+    total_answers_snapshot: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    plan = relationship(
+        "LearningPlan",
+        back_populates="items",
     )

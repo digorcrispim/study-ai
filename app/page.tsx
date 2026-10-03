@@ -38,19 +38,26 @@ export default async function Home() {
               </p>
             </div>
 
-            <Link
-              href="/performance"
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
-            >
-              
-Meu desempenho
-            </Link>
-            <Link
-              href="/history"
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
-            >
-              Histórico
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/upload"
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
+              >
+                Adicionar material
+              </Link>
+              <Link
+                href="/performance"
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
+              >
+                Meu desempenho
+              </Link>
+              <Link
+                href="/history"
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50"
+              >
+                Histórico
+              </Link>
+            </div>
           </div>
         </header>
 

@@ -1,45 +1,14 @@
-const USER_ID_KEY = "study-ai-user-id";
+const FIXED_USER_ID = "da01e100-0001-0000-0000-000000000001";
 
 export function getUserId(): string {
-  const existingId = window.localStorage.getItem(USER_ID_KEY);
-
-  if (existingId) {
-    return existingId;
+  if (typeof window === "undefined") {
+    return FIXED_USER_ID;
   }
 
-  const cryptoApi = typeof crypto === "undefined" ? undefined : crypto;
-  let newId: string;
-
-  if (typeof cryptoApi?.randomUUID === "function") {
-    newId = cryptoApi.randomUUID();
-  } else {
-    const bytes = new Uint8Array(16);
-
-    if (typeof cryptoApi?.getRandomValues === "function") {
-      cryptoApi.getRandomValues(bytes);
-    } else {
-      for (let index = 0; index < bytes.length; index += 1) {
-        bytes[index] = Math.floor(Math.random() * 256);
-      }
-    }
-
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    const hexadecimal = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
-
-    newId = [
-      hexadecimal.slice(0, 8),
-      hexadecimal.slice(8, 12),
-      hexadecimal.slice(12, 16),
-      hexadecimal.slice(16, 20),
-      hexadecimal.slice(20),
-    ].join("-");
+  let id = localStorage.getItem("study-ai-user-id");
+  if (!id) {
+    id = FIXED_USER_ID;
+    localStorage.setItem("study-ai-user-id", id);
   }
-
-  window.localStorage.setItem(USER_ID_KEY, newId);
-
-  return newId;
+  return id;
 }

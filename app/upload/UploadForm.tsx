@@ -10,6 +10,7 @@ export default function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>
@@ -20,8 +21,14 @@ export default function UploadForm() {
       return;
     }
 
+    if (file.type !== "application/pdf") {
+      setError("O arquivo selecionado precisa ser um PDF.");
+      return;
+    }
+
     setLoading(true);
     setError("");
+    setSuccess(false);
 
     try {
       const formData = new FormData();
@@ -47,29 +54,36 @@ export default function UploadForm() {
 
       const material = await uploadResponse.json();
 
-      const generationResponse = await fetch(
-        `/api/materials/${material.id}/generate-questions`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            number_of_questions: 5,
-          }),
-        }
-      );
-
-      if (!generationResponse.ok) {
-        const data = await generationResponse.json().catch(() => null);
-
-        throw new Error(
-          data?.detail ||
-            "O PDF foi enviado, mas não foi possível gerar as questões."
+      // Gerar questões a partir do material (passo não-bloqueante):
+      // o material já foi criado com sucesso, então uma falha aqui
+      // não deve impedir o fluxo de sucesso do upload.
+      try {
+        const generationResponse = await fetch(
+          `/api/materials/${material.id}/generate-questions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              number_of_questions: 5,
+            }),
+          }
         );
+
+        if (!generationResponse.ok) {
+          console.warn(
+            "Question generation failed, but material was created successfully"
+          );
+        }
+      } catch (generationError) {
+        console.warn("Question generation error:", generationError);
       }
 
-      router.push(`/materials/${material.id}`);
+      setSuccess(true);
+
+      router.push("/");
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
@@ -118,6 +132,8 @@ export default function UploadForm() {
           accept="application/pdf"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
+            setError("");
+            setSuccess(false);
           }}
           className="mt-2 block w-full text-sm text-zinc-600"
         />
@@ -135,9 +151,15 @@ export default function UploadForm() {
         </div>
       )}
 
+      {success && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          Material adicionado com sucesso. Redirecionando para seus materiais...
+        </div>
+      )}
+
       <button
         type="submit"
-        disabled={!title || !file || loading}
+        disabled={!title || !file || loading || success}
         className="rounded-lg bg-zinc-900 px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? "Processando material..." : "Enviar PDF"}

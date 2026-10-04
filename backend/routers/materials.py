@@ -1,12 +1,18 @@
+import uuid
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
 from backend.models.entities import Material
 from backend.services.pdf_service import extract_text_from_document
+
+UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 from backend.services.ai_question_service import (
     generate_questions,
     review_generated_questions,
@@ -198,10 +204,16 @@ async def upload_document(
             detail="Não foi possível extrair texto deste documento.",
         )
 
+    material_id = uuid.uuid4()
+    file_ext = SUPPORTED_CONTENT_TYPES[content_type]
+    storage_path = f"uploads/{material_id}.{file_ext}"
+    (UPLOAD_DIR / f"{material_id}.{file_ext}").write_bytes(file_bytes)
+
     material = Material(
+        id=material_id,
         title=title,
-        type=SUPPORTED_CONTENT_TYPES[content_type],
-        storage_path=None,
+        type=file_ext,
+        storage_path=storage_path,
         raw_text=raw_text,
     )
 
@@ -210,3 +222,31 @@ async def upload_document(
     db.refresh(material)
 
     return material
+
+
+@router.get("/{material_id}/download")
+def download_material(
+    material_id: UUID,
+    db: Session = Depends(get_db),
+):
+    material = db.get(Material, material_id)
+
+    if material is None or not material.storage_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Arquivo não disponível para download",
+        )
+
+    file_path = Path(__file__).parent.parent / material.storage_path
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Arquivo não encontrado no disco",
+        )
+
+    return FileResponse(
+        path=file_path,
+        filename=f"{material.title}.{file_path.suffix[1:]}",
+        media_type="application/octet-stream",
+    )

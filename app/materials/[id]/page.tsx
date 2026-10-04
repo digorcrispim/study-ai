@@ -96,6 +96,15 @@ export default async function StudyPage({
               ? "1 questão disponível."
               : `${filteredQuestions.length} questões disponíveis.`}
           </p>
+
+          <div className="mt-4">
+            <a
+              href={`/api/materials/${material.id}/download`}
+              className="inline-block px-4 py-2 bg-zinc-800 text-white text-sm font-medium rounded-lg hover:bg-zinc-700 transition-colors"
+            >
+              ⬇️ Baixar arquivo original
+            </a>
+          </div>
         </header>
 
         {filteredQuestions.length === 0 ? (

@@ -7,6 +7,27 @@ from pathlib import Path
 from faster_whisper import WhisperModel
 
 
+def _resolve_device() -> tuple[str, str]:
+    """Decide device e compute_type conforme a GPU realmente disponível.
+
+    Usa CUDA somente quando o ctranslate2 (engine do faster-whisper) reporta
+    pelo menos uma GPU. Caso contrário, cai para CPU. Isso evita que o modelo
+    quebre em runtime ao forçar 'cuda' num host sem GPU, e habilita a GPU
+    automaticamente quando o backend roda num host com CUDA.
+    """
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() > 0:
+            print("🚀 GPU CUDA detectada: usando device='cuda' (float16).")
+            return "cuda", "float16"
+    except Exception as exc:
+        print(f"Detecção de GPU falhou ({exc}); usando CPU.")
+
+    print("GPU não disponível; usando device='cpu' (int8).")
+    return "cpu", "int8"
+
+
 def extract_text_from_video(file_bytes: bytes, filename: str = "video.mp4") -> str:
     """
     Extrai texto de arquivo de vídeo usando transcrição de áudio.
@@ -32,19 +53,19 @@ def extract_text_from_video(file_bytes: bytes, filename: str = "video.mp4") -> s
         tmp_video_path = tmp_video.name
 
     try:
-        # Inicializar modelo Whisper (small é um bom equilíbrio entre
-        # velocidade e precisão).
-        # device="cpu" porque não assumimos GPU disponível.
-        # compute_type="int8" para otimizar memória.
-        model = WhisperModel("small", device="cpu", compute_type="int8")
+        # Provedor primário: Azure Speech-to-Text. Se não configurado,
+        # falhar, ou devolver texto insuficiente, cai para o Whisper local.
+        from .azure_speech_service import transcribe_with_azure_speech
 
-        # Transcrever áudio do vídeo
-        segments, info = model.transcribe(
-            tmp_video_path, beam_size=5, language="pt"
+        azure_text = transcribe_with_azure_speech(tmp_video_path)
+        if azure_text and len(azure_text.strip()) >= 50:
+            return azure_text.strip()
+
+        print(
+            "⚠️ Azure Speech indisponível ou texto insuficiente; "
+            "usando Whisper local..."
         )
-
-        # Concatenar todos os segmentos
-        transcript = " ".join([segment.text for segment in segments])
+        transcript = _transcribe_with_whisper(tmp_video_path)
 
         # Validar tamanho do texto
         if len(transcript.strip()) < 50:
@@ -64,3 +85,14 @@ def extract_text_from_video(file_bytes: bytes, filename: str = "video.mp4") -> s
         # Limpar arquivo temporário
         if os.path.exists(tmp_video_path):
             os.remove(tmp_video_path)
+
+
+def _transcribe_with_whisper(video_path: str) -> str:
+    """Transcreve um arquivo de vídeo/áudio com faster-whisper (fallback local)."""
+    # Device/compute_type resolvidos conforme a GPU realmente disponível
+    # (CUDA se houver, senão CPU/int8).
+    device, compute_type = _resolve_device()
+    model = WhisperModel("small", device=device, compute_type=compute_type)
+
+    segments, info = model.transcribe(video_path, beam_size=5, language="pt")
+    return " ".join([segment.text for segment in segments]).strip()

@@ -1,6 +1,7 @@
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+azure-cognitiveservices-speech==1.41.1
 azure-core==1.41.0
 azure-identity==1.25.3
 boto3==1.35.0

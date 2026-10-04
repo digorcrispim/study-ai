@@ -30,6 +30,7 @@ export default function UploadForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [transcriptionProgress, setTranscriptionProgress] = useState("");
 
   // Título personalizado só faz sentido quando há exatamente um arquivo.
   const singleFile = files.length === 1;
@@ -63,9 +64,16 @@ export default function UploadForm() {
     formData.append("title", fileTitle);
     formData.append("file", file);
 
-    // Timeout de 5 min: transcrição de vídeo via Whisper em CPU pode ser lenta.
+    // Timeout de 15 min: transcrição de vídeos longos pode ser demorada
+    // (margem de segurança; mais rápido quando há GPU no backend).
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    const timeoutId = setTimeout(() => controller.abort(), 900000);
+
+    if (file.type.startsWith("video/")) {
+      setTranscriptionProgress(
+        "Transcrevendo vídeo... isso pode levar alguns minutos."
+      );
+    }
 
     let uploadResponse: Response;
     try {
@@ -89,6 +97,7 @@ export default function UploadForm() {
       );
     } finally {
       clearTimeout(timeoutId);
+      setTranscriptionProgress("");
     }
 
     if (!uploadResponse.ok) {
@@ -238,6 +247,12 @@ export default function UploadForm() {
           </p>
         )}
       </div>
+
+      {transcriptionProgress && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
+          {transcriptionProgress}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">

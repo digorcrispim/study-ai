@@ -3,10 +3,60 @@ from backend.services.ollama_service import (
     generate_with_ollama,
     review_with_ollama,
 )
+from backend.services.gemini_service import generate_questions_with_gemini
 from backend.services.ai_schemas import (
+    GeneratedQuestion,
     GeneratedQuestionSet,
     QuestionQualityReviewSet,
 )
+
+
+def _gemini_questions_to_set(
+    raw_questions: list[dict],
+    topic: str = "Geral",
+    difficulty: str = "medium",
+) -> GeneratedQuestionSet:
+    """Adapta a saída do Gemini (question/options/correct/explanation) para
+    o GeneratedQuestionSet usado pelo restante do pipeline.
+
+    O Gemini retorna 'correct' como letra ("A".."D"); convertemos para o
+    índice inteiro 0..3 esperado por GeneratedQuestion.correct_answer.
+    """
+    letter_to_index = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+    questions = []
+    for raw in raw_questions:
+        options = raw.get("options") or []
+        if len(options) != 4:
+            raise ValueError(
+                "Gemini retornou uma questão sem exatamente 4 alternativas."
+            )
+
+        correct = raw.get("correct")
+        if isinstance(correct, int):
+            correct_index = correct
+        else:
+            correct_index = letter_to_index.get(str(correct).strip().upper())
+        if correct_index is None or correct_index not in range(4):
+            raise ValueError(
+                "Gemini retornou uma resposta correta inválida."
+            )
+
+        questions.append(
+            GeneratedQuestion(
+                question_text=raw.get("question", ""),
+                option_0=options[0],
+                option_1=options[1],
+                option_2=options[2],
+                option_3=options[3],
+                correct_answer=correct_index,
+                explanation=raw.get("explanation", ""),
+                topics=[topic],
+                difficulty=difficulty,
+            )
+        )
+
+    return GeneratedQuestionSet(questions=questions)
 
 
 def generate_questions(
@@ -77,7 +127,23 @@ Regras de Conteúdo:
 
         generated = response.output_parsed
     except Exception:
-        generated = generate_with_ollama(prompt)
+        # Fallback: tenta Ollama; se falhar, tenta Gemini antes de desistir.
+        try:
+            generated = generate_with_ollama(prompt)
+        except Exception as ollama_error:
+            print(f"Ollama falhou: {ollama_error}")
+            try:
+                raw_questions = generate_questions_with_gemini(
+                    material_title=material_title,
+                    raw_text=raw_text,
+                    number_of_questions=number_of_questions,
+                )
+                generated = _gemini_questions_to_set(
+                    raw_questions, topic=topic, difficulty=difficulty
+                )
+            except Exception as gemini_error:
+                print(f"Gemini falhou: {gemini_error}")
+                raise
 
     return validate_generated_questions(generated)
 

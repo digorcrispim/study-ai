@@ -1,6 +1,9 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
+
+load_dotenv()
 
 from backend.models.database import check_database_connection
 from backend.routers.materials import router as materials_router

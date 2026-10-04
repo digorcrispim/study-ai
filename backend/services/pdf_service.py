@@ -98,10 +98,74 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
         raise ValueError(f"Falha ao extrair texto do .docx: {exc}")
 
 
+def extract_text_from_xlsx(file_bytes: bytes) -> str:
+    """Extrai texto de planilha .xlsx (Excel) usando openpyxl."""
+    import io
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(filename=io.BytesIO(file_bytes), read_only=True)
+        text_parts = []
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                row_text = " ".join(
+                    str(cell) for cell in row if cell is not None
+                )
+                if row_text.strip():
+                    text_parts.append(row_text)
+        return "\n".join(text_parts).strip()
+    except Exception as exc:
+        raise ValueError(f"Falha ao extrair texto do .xlsx: {exc}")
+
+
+def extract_text_from_pptx(file_bytes: bytes) -> str:
+    """Extrai texto de apresentação .pptx (PowerPoint) usando python-pptx."""
+    import io
+    from pptx import Presentation
+
+    try:
+        prs = Presentation(io.BytesIO(file_bytes))
+        text_parts = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text:
+                    text_parts.append(shape.text)
+        return "\n".join(text_parts).strip()
+    except Exception as exc:
+        raise ValueError(f"Falha ao extrair texto do .pptx: {exc}")
+
+
+def extract_text_from_odf(file_bytes: bytes, content_type: str) -> str:
+    """Extrai texto de documentos LibreOffice (.odt, .ods, .odp) usando odfpy."""
+    import io
+    from odf.opendocument import load
+    from odf.text import P
+    from odf import teletype
+
+    try:
+        doc = load(io.BytesIO(file_bytes))
+        text_parts = []
+        for paragraph in doc.getElementsByType(P):
+            # teletype.extractText devolve o texto do nó (str(p) retornaria
+            # a representação XML do elemento, não o conteúdo).
+            text = teletype.extractText(paragraph)
+            if text and text.strip():
+                text_parts.append(text)
+        return "\n".join(text_parts).strip()
+    except Exception as exc:
+        raise ValueError(f"Falha ao extrair texto do documento ODF: {exc}")
+
+
 def extract_text_from_document(
     file_bytes: bytes, content_type: str, filename: str = "document"
 ) -> str:
     """Despacha para a função de extração correta baseada no content_type."""
+    odf_types = {
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+    }
+
     if content_type == "application/pdf":
         return extract_text_from_pdf(file_bytes)
     elif content_type == "text/plain":
@@ -110,6 +174,16 @@ def extract_text_from_document(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ):
         return extract_text_from_docx(file_bytes)
+    elif content_type == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ):
+        return extract_text_from_xlsx(file_bytes)
+    elif content_type == (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ):
+        return extract_text_from_pptx(file_bytes)
+    elif content_type in odf_types:
+        return extract_text_from_odf(file_bytes, content_type)
     elif content_type.startswith("video/"):
         from .video_service import extract_text_from_video
         return extract_text_from_video(file_bytes, filename)

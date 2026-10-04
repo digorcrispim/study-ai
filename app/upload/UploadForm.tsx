@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 const ACCEPTED_TYPES = [
   "application/pdf",
   "text/plain",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+  "application/vnd.oasis.opendocument.text", // .odt
+  "application/vnd.oasis.opendocument.spreadsheet", // .ods
+  "application/vnd.oasis.opendocument.presentation", // .odp
   "video/mp4",
   "video/x-matroska",
   "video/x-msvideo",
@@ -14,33 +19,26 @@ const ACCEPTED_TYPES = [
   "video/webm",
 ];
 
-const ACCEPT_ATTR = ".pdf,.txt,.docx,.mp4,.mkv,.avi,.mov,.webm";
-
-// webkitdirectory/directory não fazem parte do tipo padrão de <input> no
-// React, então aplicamos via spread type-safe para não quebrar o typecheck.
-// IMPORTANTE: o valor precisa ser uma string truthy ("true") — o React
-// omite do DOM atributos desconhecidos cujo valor é falsy (ex.: ""), o que
-// faria o seletor de pasta não funcionar.
-const directoryInputProps = {
-  webkitdirectory: "true",
-  directory: "true",
-} as unknown as React.InputHTMLAttributes<HTMLInputElement>;
+const ACCEPT_ATTR =
+  ".pdf,.txt,.docx,.xlsx,.pptx,.odt,.ods,.odp,.mp4,.mkv,.avi,.mov,.webm";
 
 export default function UploadForm() {
   const router = useRouter();
 
   const [title, setTitle] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [fromFolder, setFromFolder] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
-  function selectFiles(fileList: FileList | null, folder: boolean) {
+  // Título personalizado só faz sentido quando há exatamente um arquivo.
+  const singleFile = files.length === 1;
+
+  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
     setError("");
     setSuccess(false);
-    setFromFolder(folder);
 
+    const fileList = event.target.files;
     if (!fileList || fileList.length === 0) {
       setFiles([]);
       return;
@@ -65,14 +63,44 @@ export default function UploadForm() {
     formData.append("title", fileTitle);
     formData.append("file", file);
 
-    const uploadResponse = await fetch("/api/materials/upload-pdf", {
-      method: "POST",
-      body: formData,
-    });
+    // Timeout de 5 min: transcrição de vídeo via Whisper em CPU pode ser lenta.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+    let uploadResponse: Response;
+    try {
+      uploadResponse = await fetch("/api/materials/upload-pdf", {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+    } catch (fetchError) {
+      if (
+        fetchError instanceof DOMException &&
+        fetchError.name === "AbortError"
+      ) {
+        throw new Error(
+          "Tempo esgotado: o processamento do arquivo demorou demais " +
+            "(vídeos longos podem exceder o limite). Tente um arquivo menor."
+        );
+      }
+      throw new Error(
+        "Falha de conexão ao enviar o arquivo. Verifique sua rede e tente novamente."
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!uploadResponse.ok) {
       const data = await uploadResponse.json().catch(() => null);
-      throw new Error(data?.detail || "Não foi possível enviar o arquivo.");
+      const errorMsg =
+        data?.detail ||
+        (uploadResponse.status === 413
+          ? "Arquivo muito grande."
+          : uploadResponse.status === 408
+            ? "Tempo esgotado — tente um arquivo menor."
+            : `Erro ${uploadResponse.status}: ${uploadResponse.statusText}`);
+      throw new Error(errorMsg);
     }
 
     const material = await uploadResponse.json();
@@ -104,13 +132,13 @@ export default function UploadForm() {
   }
 
   function titleForFile(file: File, index: number): string {
-    // Em modo pasta, o título vem do nome do arquivo (sem extensão).
-    // Em modo arquivo único, usa o título informado pelo usuário.
-    if (fromFolder) {
-      const base = file.name.replace(/\.[^.]+$/, "");
-      return base || `Material ${index + 1}`;
+    // Com um único arquivo e título informado, usa o título do usuário.
+    // Caso contrário, deriva do nome do arquivo (sem extensão).
+    if (singleFile && title) {
+      return title;
     }
-    return title;
+    const base = file.name.replace(/\.[^.]+$/, "");
+    return base || `Material ${index + 1}`;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -120,8 +148,8 @@ export default function UploadForm() {
       return;
     }
 
-    // Em modo arquivo único, o título é obrigatório.
-    if (!fromFolder && !title) {
+    // Com um único arquivo, o título é obrigatório.
+    if (singleFile && !title) {
       return;
     }
 
@@ -152,7 +180,7 @@ export default function UploadForm() {
     files.length > 0 &&
     !loading &&
     !success &&
-    (fromFolder || Boolean(title));
+    (!singleFile || Boolean(title));
 
   return (
     <form
@@ -173,54 +201,40 @@ export default function UploadForm() {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           placeholder="Ex.: Microeconomia 1"
-          disabled={fromFolder}
+          disabled={!singleFile}
           className="mt-2 w-full rounded-lg border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
         />
-        {fromFolder && (
+        {files.length > 1 && (
           <p className="mt-2 text-sm text-zinc-500">
-            No modo pasta, o título de cada material vem do nome do arquivo.
+            Com vários arquivos, o título de cada material vem do nome do
+            arquivo.
           </p>
         )}
       </div>
 
       <div>
         <span className="block text-sm font-medium text-zinc-700">
-          Enviar (PDF, TXT, DOCX ou vídeo)
+          Arquivos (PDF, TXT, DOCX ou vídeo)
         </span>
 
-        <div className="mt-2 flex gap-2">
-          <label className="flex-1 cursor-pointer">
-            <input
-              type="file"
-              accept={ACCEPT_ATTR}
-              className="hidden"
-              onChange={(event) => selectFiles(event.target.files, false)}
-            />
-            <div className="rounded-lg bg-blue-500 px-4 py-2 text-center font-medium text-white hover:bg-blue-600">
-              📄 Arquivo
-            </div>
-          </label>
-
-          <label className="flex-1 cursor-pointer">
-            <input
-              type="file"
-              multiple
-              accept={ACCEPT_ATTR}
-              className="hidden"
-              onChange={(event) => selectFiles(event.target.files, true)}
-              {...directoryInputProps}
-            />
-            <div className="rounded-lg bg-green-500 px-4 py-2 text-center font-medium text-white hover:bg-green-600">
-              📁 Pasta
-            </div>
-          </label>
-        </div>
+        <label className="mt-2 block cursor-pointer">
+          <input
+            type="file"
+            multiple
+            accept={ACCEPT_ATTR}
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <div className="rounded-lg bg-blue-500 px-6 py-3 text-center font-medium text-white hover:bg-blue-600">
+            📁 Selecionar Arquivos
+          </div>
+        </label>
 
         {files.length > 0 && (
           <p className="mt-2 text-sm text-zinc-500">
-            {fromFolder
-              ? `${files.length} arquivo(s) selecionado(s) da pasta`
-              : `Arquivo selecionado: ${files[0].name}`}
+            {singleFile
+              ? `Arquivo selecionado: ${files[0].name}`
+              : `${files.length} arquivo(s) selecionado(s)`}
           </p>
         )}
       </div>

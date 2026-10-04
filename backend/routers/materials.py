@@ -165,6 +165,11 @@ SUPPORTED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
         "docx"
     ),
+    "video/mp4": "mp4",
+    "video/x-matroska": "mkv",
+    "video/x-msvideo": "avi",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
 }
 
 
@@ -184,14 +189,17 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "O arquivo enviado precisa ser PDF, TXT ou DOCX."
+                "O arquivo enviado precisa ser PDF, TXT, DOCX ou vídeo "
+                "(MP4, MKV, AVI, MOV, WEBM)."
             ),
         )
 
     file_bytes = await file.read()
 
     try:
-        raw_text = extract_text_from_document(file_bytes, content_type)
+        raw_text = extract_text_from_document(
+            file_bytes, content_type, file.filename or "document"
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -206,13 +214,14 @@ async def upload_document(
 
     material_id = uuid.uuid4()
     file_ext = SUPPORTED_CONTENT_TYPES[content_type]
+    material_type = "video" if content_type.startswith("video/") else file_ext
     storage_path = f"uploads/{material_id}.{file_ext}"
     (UPLOAD_DIR / f"{material_id}.{file_ext}").write_bytes(file_bytes)
 
     material = Material(
         id=material_id,
         title=title,
-        type=file_ext,
+        type=material_type,
         storage_path=storage_path,
         raw_text=raw_text,
     )

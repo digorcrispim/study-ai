@@ -25,10 +25,18 @@ export default function UploadForm() {
       "application/pdf",
       "text/plain",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "video/mp4",
+      "video/x-matroska",
+      "video/x-msvideo",
+      "video/quicktime",
+      "video/webm",
     ];
 
     if (!acceptedTypes.includes(file.type)) {
-      setError("O arquivo selecionado precisa ser PDF, TXT ou DOCX.");
+      setError(
+        "O arquivo selecionado precisa ser PDF, TXT, DOCX ou vídeo " +
+          "(MP4, MKV, AVI, MOV, WEBM)."
+      );
       return;
     }
 
@@ -129,13 +137,13 @@ export default function UploadForm() {
           htmlFor="file"
           className="block text-sm font-medium text-zinc-700"
         >
-          Arquivo (PDF, TXT ou DOCX)
+          Arquivo (PDF, TXT, DOCX ou vídeo)
         </label>
 
         <input
           id="file"
           type="file"
-          accept=".pdf,.txt,.docx"
+          accept=".pdf,.txt,.docx,.mp4,.mkv,.avi,.mov,.webm"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
             setError("");

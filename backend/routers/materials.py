@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
-from backend.models.entities import Material
+from backend.models.entities import Material, Question
 from backend.services.pdf_service import extract_text_from_document
 
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
@@ -133,6 +133,14 @@ def generate_material_questions(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="O material ainda não possui texto para análise.",
         )
+
+    # Cache: se já existem questões para este material, retorna as existentes
+    # em vez de gerar novamente.
+    existing_questions = db.scalars(
+        select(Question).where(Question.material_id == material_id)
+    ).all()
+    if existing_questions:
+        return existing_questions
 
     generated_questions = generate_questions(
         material_title=material.title,

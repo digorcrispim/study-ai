@@ -167,14 +167,9 @@ def generate_questions(
     difficulty: str = "medium",
     objective: str = "Garantir a fixação dos conceitos fundamentais do material.",
 ) -> GeneratedQuestionSet:
-    # Cache por hash: se um db for fornecido e já houver questões para este
-    # conteúdo, reutiliza-as em vez de gerar de novo.
+    # content_hash é usado para marcar o material após a geração (habilita
+    # a verificação de cache feita pelos callers antes de chamar esta função).
     content_hash = compute_content_hash(raw_text)
-    if db is not None:
-        cached = get_cached_questions(content_hash, db)
-        if cached:
-            print(f"Cache hit para hash {content_hash[:8]}...")
-            return cached
 
     prompt = f"""
 Você é um gerador de questões para uma plataforma de estudos.

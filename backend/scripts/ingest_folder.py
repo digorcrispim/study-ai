@@ -169,9 +169,24 @@ def process_file(
         db.refresh(material)
 
         if generate:
-            print("   🤖 gerando questões...")
-            count = generate_questions_for_material(material, db)
-            print(f"   ✅ material criado + {count} questão(ões) geradas")
+            # Cache: se o material já possui questões, pula a geração.
+            from backend.models.entities import Question
+            from sqlalchemy import func
+
+            existing_count = db.scalar(
+                select(func.count(Question.id)).where(
+                    Question.material_id == material.id
+                )
+            )
+            if existing_count and existing_count > 0:
+                print(
+                    f"   ⏭️  questões já existem ({existing_count}), "
+                    "pulando geração"
+                )
+            else:
+                print("   🤖 gerando questões...")
+                count = generate_questions_for_material(material, db)
+                print(f"   ✅ material criado + {count} questão(ões) geradas")
         else:
             print("   ✅ material criado (sem geração de questões)")
 

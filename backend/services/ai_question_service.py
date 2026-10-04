@@ -8,6 +8,7 @@ from backend.services.ollama_service import (
     review_with_ollama,
 )
 from backend.services.gemini_service import generate_questions_with_gemini
+from backend.services.bedrock_service import generate_questions_with_bedrock
 from backend.services.ai_schemas import (
     GeneratedQuestion,
     GeneratedQuestionSet,
@@ -110,16 +111,16 @@ Explicação: {q.explanation or ""}
     return "\n---\n".join(examples) if examples else ""
 
 
-def _gemini_questions_to_set(
+def _llm_questions_to_set(
     raw_questions: list[dict],
     topic: str = "Geral",
     difficulty: str = "medium",
 ) -> GeneratedQuestionSet:
-    """Adapta a saída do Gemini (question/options/correct/explanation) para
-    o GeneratedQuestionSet usado pelo restante do pipeline.
+    """Adapta a saída de LLMs no formato question/options/correct/explanation
+    (usado por Bedrock e Gemini) para o GeneratedQuestionSet do pipeline.
 
-    O Gemini retorna 'correct' como letra ("A".."D"); convertemos para o
-    índice inteiro 0..3 esperado por GeneratedQuestion.correct_answer.
+    O 'correct' vem como letra ("A".."D"); convertemos para o índice inteiro
+    0..3 esperado por GeneratedQuestion.correct_answer.
     """
     letter_to_index = {"A": 0, "B": 1, "C": 2, "D": 3}
 
@@ -219,42 +220,55 @@ Regras de Conteúdo:
 6. Não invente informações que não estejam sustentadas pelo material.
 """
 
+    # Cadeia de fallback: Bedrock -> OpenAI/Azure -> Gemini -> Ollama.
     try:
-        response = client.responses.parse(
-            model=MODEL,
-            input=prompt,
-            text_format=GeneratedQuestionSet,
+        raw_questions = generate_questions_with_bedrock(
+            material_title=material_title,
+            raw_text=raw_text,
+            number_of_questions=number_of_questions,
         )
-
-        if response.output_parsed is None:
-            raise RuntimeError("A IA não retornou questões estruturadas.")
-
-        generated = response.output_parsed
-    except Exception:
-        # Fallback reordenado: OpenAI (acima) -> Gemini -> Ollama.
+        generated = _llm_questions_to_set(
+            raw_questions, topic=topic, difficulty=difficulty
+        )
+    except Exception as bedrock_error:
+        print(f"Bedrock falhou, tentando OpenAI: {bedrock_error}")
         try:
-            raw_questions = generate_questions_with_gemini(
-                material_title=material_title,
-                raw_text=raw_text,
-                number_of_questions=number_of_questions,
+            response = client.responses.parse(
+                model=MODEL,
+                input=prompt,
+                text_format=GeneratedQuestionSet,
             )
-            generated = _gemini_questions_to_set(
-                raw_questions, topic=topic, difficulty=difficulty
-            )
-        except Exception as gemini_error:
-            print(f"Gemini falhou: {gemini_error}")
-            # Ollama como último recurso, com few-shot automático injetado
-            # no prompt (quando um db está disponível). Não altera o
-            # ollama_service: os exemplos vão embutidos na própria string.
-            ollama_prompt = prompt
-            if db is not None:
-                few_shot = get_few_shot_examples(db, limit=3)
-                if few_shot:
-                    ollama_prompt = (
-                        "Exemplos de questões de alta qualidade:\n"
-                        f"{few_shot}\n\n{prompt}"
-                    )
-            generated = generate_with_ollama(ollama_prompt)
+
+            if response.output_parsed is None:
+                raise RuntimeError("A IA não retornou questões estruturadas.")
+
+            generated = response.output_parsed
+        except Exception as openai_error:
+            print(f"OpenAI falhou, tentando Gemini: {openai_error}")
+            try:
+                raw_questions = generate_questions_with_gemini(
+                    material_title=material_title,
+                    raw_text=raw_text,
+                    number_of_questions=number_of_questions,
+                )
+                generated = _llm_questions_to_set(
+                    raw_questions, topic=topic, difficulty=difficulty
+                )
+            except Exception as gemini_error:
+                print(f"Gemini falhou, tentando Ollama: {gemini_error}")
+                # Ollama como último recurso, com few-shot automático
+                # injetado no prompt (quando um db está disponível). Não
+                # altera o ollama_service: os exemplos vão embutidos na
+                # própria string.
+                ollama_prompt = prompt
+                if db is not None:
+                    few_shot = get_few_shot_examples(db, limit=3)
+                    if few_shot:
+                        ollama_prompt = (
+                            "Exemplos de questões de alta qualidade:\n"
+                            f"{few_shot}\n\n{prompt}"
+                        )
+                generated = generate_with_ollama(ollama_prompt)
 
     generated = validate_generated_questions(generated)
 

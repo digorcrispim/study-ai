@@ -22,7 +22,7 @@ def generate_questions_with_bedrock(
         region_name=region,
     )
 
-    model_id = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     prompt = f"""Você é um professor especialista em criar questões de estudo.
 Material: {material_title}

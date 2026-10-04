@@ -98,7 +98,9 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
         raise ValueError(f"Falha ao extrair texto do .docx: {exc}")
 
 
-def extract_text_from_document(file_bytes: bytes, content_type: str) -> str:
+def extract_text_from_document(
+    file_bytes: bytes, content_type: str, filename: str = "document"
+) -> str:
     """Despacha para a função de extração correta baseada no content_type."""
     if content_type == "application/pdf":
         return extract_text_from_pdf(file_bytes)
@@ -108,5 +110,8 @@ def extract_text_from_document(file_bytes: bytes, content_type: str) -> str:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ):
         return extract_text_from_docx(file_bytes)
+    elif content_type.startswith("video/"):
+        from .video_service import extract_text_from_video
+        return extract_text_from_video(file_bytes, filename)
     else:
         raise ValueError(f"Formato de arquivo não suportado: {content_type}")

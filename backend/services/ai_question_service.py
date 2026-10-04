@@ -1,4 +1,8 @@
 from backend.services.openai_service import client, MODEL
+import hashlib
+
+from sqlalchemy.orm import Session
+
 from backend.services.ollama_service import (
     generate_with_ollama,
     review_with_ollama,
@@ -9,6 +13,101 @@ from backend.services.ai_schemas import (
     GeneratedQuestionSet,
     QuestionQualityReviewSet,
 )
+
+
+def compute_content_hash(raw_text: str) -> str:
+    """Calcula hash SHA-256 do conteúdo para cache."""
+    return hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+
+def _questions_to_set(questions, title: str = "") -> GeneratedQuestionSet:
+    """Converte linhas Question (ORM) de volta para GeneratedQuestionSet."""
+    generated = []
+    for q in questions:
+        options = q.options or {}
+        generated.append(
+            GeneratedQuestion(
+                question_text=q.question_text,
+                option_0=options.get("0", ""),
+                option_1=options.get("1", ""),
+                option_2=options.get("2", ""),
+                option_3=options.get("3", ""),
+                correct_answer=q.correct_answer,
+                explanation=q.explanation or "",
+                topics=q.topics or ["Geral"],
+                difficulty=q.difficulty or "medium",
+            )
+        )
+    return GeneratedQuestionSet(questions=generated)
+
+
+def get_cached_questions(
+    content_hash: str, db: Session
+) -> GeneratedQuestionSet | None:
+    """Busca questões já geradas para este conteúdo (cache por hash)."""
+    from backend.models.entities import Material, Question
+    from sqlalchemy import select
+
+    material = db.scalars(
+        select(Material).where(Material.content_hash == content_hash)
+    ).first()
+    if material:
+        questions = db.scalars(
+            select(Question).where(Question.material_id == material.id)
+        ).all()
+        if questions:
+            return _questions_to_set(questions, material.title)
+    return None
+
+
+def save_content_hash(material_id, content_hash: str, db: Session) -> None:
+    """Salva o hash do conteúdo no material."""
+    from backend.models.entities import Material
+
+    material = db.get(Material, material_id)
+    if material is not None:
+        material.content_hash = content_hash
+        db.commit()
+
+
+def get_few_shot_examples(db: Session, limit: int = 3) -> str:
+    """Busca exemplos de questões de alta qualidade para few-shot learning."""
+    from backend.models.entities import Material, Question
+    from sqlalchemy import select
+
+    materials_with_hash = db.scalars(
+        select(Material)
+        .where(Material.content_hash.isnot(None))
+        .order_by(Material.created_at.desc())
+        .limit(10)
+    ).all()
+
+    examples = []
+    for material in materials_with_hash:
+        questions = db.scalars(
+            select(Question)
+            .where(Question.material_id == material.id)
+            .limit(1)
+        ).all()
+        for q in questions:
+            options = q.options or {}
+            examples.append(
+                f"""
+Material: {material.title}
+Questão: {q.question_text}
+Opções:
+A) {options.get("0", "")}
+B) {options.get("1", "")}
+C) {options.get("2", "")}
+D) {options.get("3", "")}
+Resposta: {chr(65 + q.correct_answer)}
+Explicação: {q.explanation or ""}
+"""
+            )
+        if len(examples) >= limit:
+            break
+
+    return "\n---\n".join(examples) if examples else ""
 
 
 def _gemini_questions_to_set(
@@ -63,10 +162,20 @@ def generate_questions(
     material_title: str,
     raw_text: str,
     number_of_questions: int = 5,
+    db: Session | None = None,
     topic: str = "Geral",
     difficulty: str = "medium",
     objective: str = "Garantir a fixação dos conceitos fundamentais do material.",
 ) -> GeneratedQuestionSet:
+    # Cache por hash: se um db for fornecido e já houver questões para este
+    # conteúdo, reutiliza-as em vez de gerar de novo.
+    content_hash = compute_content_hash(raw_text)
+    if db is not None:
+        cached = get_cached_questions(content_hash, db)
+        if cached:
+            print(f"Cache hit para hash {content_hash[:8]}...")
+            return cached
+
     prompt = f"""
 Você é um gerador de questões para uma plataforma de estudos.
 
@@ -127,25 +236,45 @@ Regras de Conteúdo:
 
         generated = response.output_parsed
     except Exception:
-        # Fallback: tenta Ollama; se falhar, tenta Gemini antes de desistir.
+        # Fallback reordenado: OpenAI (acima) -> Gemini -> Ollama.
         try:
-            generated = generate_with_ollama(prompt)
-        except Exception as ollama_error:
-            print(f"Ollama falhou: {ollama_error}")
-            try:
-                raw_questions = generate_questions_with_gemini(
-                    material_title=material_title,
-                    raw_text=raw_text,
-                    number_of_questions=number_of_questions,
-                )
-                generated = _gemini_questions_to_set(
-                    raw_questions, topic=topic, difficulty=difficulty
-                )
-            except Exception as gemini_error:
-                print(f"Gemini falhou: {gemini_error}")
-                raise
+            raw_questions = generate_questions_with_gemini(
+                material_title=material_title,
+                raw_text=raw_text,
+                number_of_questions=number_of_questions,
+            )
+            generated = _gemini_questions_to_set(
+                raw_questions, topic=topic, difficulty=difficulty
+            )
+        except Exception as gemini_error:
+            print(f"Gemini falhou: {gemini_error}")
+            # Ollama como último recurso, com few-shot automático injetado
+            # no prompt (quando um db está disponível). Não altera o
+            # ollama_service: os exemplos vão embutidos na própria string.
+            ollama_prompt = prompt
+            if db is not None:
+                few_shot = get_few_shot_examples(db, limit=3)
+                if few_shot:
+                    ollama_prompt = (
+                        "Exemplos de questões de alta qualidade:\n"
+                        f"{few_shot}\n\n{prompt}"
+                    )
+            generated = generate_with_ollama(ollama_prompt)
 
-    return validate_generated_questions(generated)
+    generated = validate_generated_questions(generated)
+
+    # Marca o material com o hash do conteúdo para habilitar o cache futuro.
+    if db is not None:
+        from backend.models.entities import Material
+        from sqlalchemy import select
+
+        material = db.scalars(
+            select(Material).where(Material.raw_text == raw_text)
+        ).first()
+        if material is not None and material.content_hash != content_hash:
+            save_content_hash(material.id, content_hash, db)
+
+    return generated
 
 
 def save_generated_questions(

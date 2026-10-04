@@ -32,6 +32,9 @@ class Material(Base):
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     storage_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

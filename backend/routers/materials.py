@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.database import SessionLocal
 from backend.models.entities import Material
-from backend.services.pdf_service import extract_text_from_pdf
+from backend.services.pdf_service import extract_text_from_document
 from backend.services.ai_question_service import (
     generate_questions,
     review_generated_questions,
@@ -153,41 +153,54 @@ def generate_material_questions(
 
 
 
+SUPPORTED_CONTENT_TYPES = {
+    "application/pdf": "pdf",
+    "text/plain": "txt",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+        "docx"
+    ),
+}
+
+
 @router.post(
     "/upload-pdf",
     response_model=MaterialResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def upload_pdf(
+async def upload_document(
     title: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    if file.content_type != "application/pdf":
+    content_type = file.content_type
+
+    if content_type not in SUPPORTED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="O arquivo enviado precisa ser um PDF.",
+            detail=(
+                "O arquivo enviado precisa ser PDF, TXT ou DOCX."
+            ),
         )
 
-    pdf_bytes = await file.read()
+    file_bytes = await file.read()
 
     try:
-        raw_text = extract_text_from_pdf(pdf_bytes)
+        raw_text = extract_text_from_document(file_bytes, content_type)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Não foi possível extrair o texto do PDF: {exc}",
+            detail=f"Não foi possível extrair o texto do documento: {exc}",
         )
 
     if not raw_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Não foi possível extrair texto deste PDF.",
+            detail="Não foi possível extrair texto deste documento.",
         )
 
     material = Material(
         title=title,
-        type="pdf",
+        type=SUPPORTED_CONTENT_TYPES[content_type],
         storage_path=None,
         raw_text=raw_text,
     )

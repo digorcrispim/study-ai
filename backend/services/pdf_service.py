@@ -64,3 +64,49 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         "Não foi possível extrair texto do PDF. O arquivo pode estar "
         "vazio, corrompido ou ser uma imagem não legível."
     )
+
+
+def extract_text_from_txt(file_bytes: bytes) -> str:
+    """Extrai texto de arquivo .txt (decodifica como UTF-8)."""
+    try:
+        return file_bytes.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        raise ValueError(
+            "Não foi possível decodificar o arquivo .txt. "
+            "Verifique se está em UTF-8."
+        )
+
+
+def extract_text_from_docx(file_bytes: bytes) -> str:
+    """Extrai texto de arquivo .docx usando python-docx."""
+    import io
+    from docx import Document
+
+    try:
+        doc = Document(io.BytesIO(file_bytes))
+        text = "\n".join([para.text for para in doc.paragraphs])
+
+        if len(text.strip()) < MINIMUM_TEXT_LENGTH:
+            raise ValueError(
+                "O arquivo .docx parece estar vazio ou com muito pouco texto."
+            )
+
+        return text.strip()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"Falha ao extrair texto do .docx: {exc}")
+
+
+def extract_text_from_document(file_bytes: bytes, content_type: str) -> str:
+    """Despacha para a função de extração correta baseada no content_type."""
+    if content_type == "application/pdf":
+        return extract_text_from_pdf(file_bytes)
+    elif content_type == "text/plain":
+        return extract_text_from_txt(file_bytes)
+    elif content_type == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ):
+        return extract_text_from_docx(file_bytes)
+    else:
+        raise ValueError(f"Formato de arquivo não suportado: {content_type}")

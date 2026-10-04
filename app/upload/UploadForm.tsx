@@ -21,8 +21,14 @@ export default function UploadForm() {
       return;
     }
 
-    if (file.type !== "application/pdf") {
-      setError("O arquivo selecionado precisa ser um PDF.");
+    const acceptedTypes = [
+      "application/pdf",
+      "text/plain",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    if (!acceptedTypes.includes(file.type)) {
+      setError("O arquivo selecionado precisa ser PDF, TXT ou DOCX.");
       return;
     }
 
@@ -123,13 +129,13 @@ export default function UploadForm() {
           htmlFor="file"
           className="block text-sm font-medium text-zinc-700"
         >
-          Arquivo PDF
+          Arquivo (PDF, TXT ou DOCX)
         </label>
 
         <input
           id="file"
           type="file"
-          accept="application/pdf"
+          accept=".pdf,.txt,.docx"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
             setError("");
@@ -162,7 +168,7 @@ export default function UploadForm() {
         disabled={!title || !file || loading || success}
         className="rounded-lg bg-zinc-900 px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading ? "Processando material..." : "Enviar PDF"}
+        {loading ? "Processando material..." : "Enviar arquivo"}
       </button>
     </form>
   );

@@ -77,7 +77,7 @@ export default function UploadForm() {
 
     let uploadResponse: Response;
     try {
-      uploadResponse = await fetch("/api/materials/upload-pdf", {
+      uploadResponse = await fetch("http://127.0.0.1:8000/materials/upload-pdf", {
         method: "POST",
         body: formData,
         signal: controller.signal,

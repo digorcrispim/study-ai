@@ -1,57 +1,61 @@
-"""Serviço de transcrição usando Azure Speech-to-Text."""
+"""Serviço de transcrição de alta performance usando Azure Speech-to-Text."""
 
 import os
+import subprocess
+import tempfile
 import azure.cognitiveservices.speech as speechsdk
 from typing import Optional
 
 
-def transcribe_with_azure_speech(audio_file_path: str) -> Optional[str]:
+def transcribe_with_azure_speech(input_file_path: str) -> Optional[str]:
     """
     Transcreve áudio usando Azure Speech-to-Text.
-    Retorna o texto transcrito ou None se falhar.
+    Converte para WAV 16kHz mono antes do processamento para garantir
+    compatibilidade do SDK.
     """
     speech_key = os.getenv("AZURE_SPEECH_KEY")
     service_region = os.getenv("AZURE_SPEECH_REGION", "eastus")
 
     if not speech_key or speech_key == "sua_chave_aqui":
-        print("⚠️ AZURE_SPEECH_KEY não configurada, pulando Azure Speech")
         return None
 
+    wav_path = None
     try:
-        # Configurar reconhecimento de áudio
+        # 1. Converter para o formato exigido pelo Azure Speech SDK
+        # (WAV, 16kHz, mono).
+        wav_path = tempfile.mktemp(suffix=".wav")
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_file_path,
+                "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+
+        # 2. Configurar Azure Speech
         speech_config = speechsdk.SpeechConfig(
-            subscription=speech_key,
-            region=service_region,
+            subscription=speech_key, region=service_region
         )
         speech_config.speech_recognition_language = "pt-BR"
 
-        # Configurar entrada de áudio
-        audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
-
-        # Criar reconhecedor
+        audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
         speech_recognizer = speechsdk.SpeechRecognizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
+            speech_config=speech_config, audio_config=audio_config
         )
 
-        print("🚀 Transcrevendo com Azure Speech-to-Text...")
-
-        # Transcrever uma vez (reconhecimento único)
+        # 3. Executar reconhecimento
         result = speech_recognizer.recognize_once_async().get()
 
         if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            print(f"✅ Azure Speech: {len(result.text)} caracteres transcritos")
             return result.text
-        elif result.reason == speechsdk.ResultReason.NoMatch:
-            print("⚠️ Azure Speech: nenhum áudio reconhecido")
-            return None
-        elif result.reason == speechsdk.ResultReason.Canceled:
-            cancellation = result.cancellation_details
-            print(f"⚠️ Azure Speech cancelado: {cancellation.reason}")
-            if cancellation.reason == speechsdk.CancellationReason.Error:
-                print(f"   Erro: {cancellation.error_details}")
-            return None
-
-    except Exception as e:
-        print(f"❌ Erro no Azure Speech: {e}")
         return None
+
+    except Exception:
+        return None
+
+    finally:
+        # 4. Limpeza: remover o arquivo WAV temporário
+        if wav_path and os.path.exists(wav_path):
+            os.remove(wav_path)

@@ -9,6 +9,7 @@ from backend.services.ollama_service import (
 )
 from backend.services.gemini_service import generate_questions_with_gemini
 from backend.services.bedrock_service import generate_questions_with_bedrock
+from backend.services.alibaba_service import generate_questions_with_alibaba
 from backend.services.ai_schemas import (
     GeneratedQuestion,
     GeneratedQuestionSet,
@@ -220,33 +221,40 @@ Regras de Conteúdo:
 6. Não invente informações que não estejam sustentadas pelo material.
 """
 
-    # Cadeia de fallback: Bedrock -> OpenAI/Azure -> Gemini -> Ollama.
+    # Cadeia de fallback (estratégia FinOps):
+    # OpenAI/Azure -> Gemini -> Bedrock -> Alibaba (Qwen) -> Ollama (local).
+    # Prioriza créditos que expiram antes (Azure 16/10, Google 12/2026);
+    # Alibaba entra como fallback de segurança; Ollama local nunca deixa parar.
     try:
-        raw_questions = generate_questions_with_bedrock(
-            material_title=material_title,
-            raw_text=raw_text,
-            number_of_questions=number_of_questions,
+        # 1. PRIORIDADE: Azure OpenAI / OpenAI (créditos expiram em 16/10)
+        print("🚀 Tentando geração com OpenAI/Azure (prioridade de crédito)...")
+        response = client.responses.parse(
+            model=MODEL,
+            input=prompt,
+            text_format=GeneratedQuestionSet,
         )
-        generated = _llm_questions_to_set(
-            raw_questions, topic=topic, difficulty=difficulty
-        )
-    except Exception as bedrock_error:
-        print(f"Bedrock falhou, tentando OpenAI: {bedrock_error}")
+
+        if response.output_parsed is None:
+            raise RuntimeError("A IA não retornou questões estruturadas.")
+
+        generated = response.output_parsed
+    except Exception as openai_error:
+        print(f"⚠️ OpenAI/Azure falhou, tentando Google Gemini: {openai_error}")
         try:
-            response = client.responses.parse(
-                model=MODEL,
-                input=prompt,
-                text_format=GeneratedQuestionSet,
+            # 2. SECUNDÁRIO: Google Gemini (créditos expiram em 12/2026)
+            raw_questions = generate_questions_with_gemini(
+                material_title=material_title,
+                raw_text=raw_text,
+                number_of_questions=number_of_questions,
             )
-
-            if response.output_parsed is None:
-                raise RuntimeError("A IA não retornou questões estruturadas.")
-
-            generated = response.output_parsed
-        except Exception as openai_error:
-            print(f"OpenAI falhou, tentando Gemini: {openai_error}")
+            generated = _llm_questions_to_set(
+                raw_questions, topic=topic, difficulty=difficulty
+            )
+        except Exception as gemini_error:
+            print(f"⚠️ Gemini falhou, tentando Amazon Bedrock: {gemini_error}")
             try:
-                raw_questions = generate_questions_with_gemini(
+                # 3. TERCIÁRIO: Amazon Bedrock
+                raw_questions = generate_questions_with_bedrock(
                     material_title=material_title,
                     raw_text=raw_text,
                     number_of_questions=number_of_questions,
@@ -254,21 +262,39 @@ Regras de Conteúdo:
                 generated = _llm_questions_to_set(
                     raw_questions, topic=topic, difficulty=difficulty
                 )
-            except Exception as gemini_error:
-                print(f"Gemini falhou, tentando Ollama: {gemini_error}")
-                # Ollama como último recurso, com few-shot automático
-                # injetado no prompt (quando um db está disponível). Não
-                # altera o ollama_service: os exemplos vão embutidos na
-                # própria string.
-                ollama_prompt = prompt
-                if db is not None:
-                    few_shot = get_few_shot_examples(db, limit=3)
-                    if few_shot:
-                        ollama_prompt = (
-                            "Exemplos de questões de alta qualidade:\n"
-                            f"{few_shot}\n\n{prompt}"
-                        )
-                generated = generate_with_ollama(ollama_prompt)
+            except Exception as bedrock_error:
+                print(
+                    "⚠️ Bedrock falhou. Acionando fallback de segurança: "
+                    f"Alibaba Cloud (Qwen)... {bedrock_error}"
+                )
+                try:
+                    # 4. FALLBACK DE SEGURANÇA: Alibaba Cloud (Qwen).
+                    # Retorna GeneratedQuestionSet diretamente (não passa
+                    # pelo adaptador _llm_questions_to_set).
+                    generated = generate_questions_with_alibaba(
+                        material_title=material_title,
+                        raw_text=raw_text,
+                        number_of_questions=number_of_questions,
+                        topic=topic or "Geral",
+                        difficulty=difficulty or "medium",
+                    )
+                except Exception as alibaba_error:
+                    print(
+                        "⚠️ Alibaba falhou. Último recurso: Ollama local... "
+                        f"{alibaba_error}"
+                    )
+                    # 5. ÚLTIMO RECURSO: Ollama local, com few-shot automático
+                    # injetado no prompt quando há db disponível. Não altera o
+                    # ollama_service: os exemplos vão embutidos na string.
+                    ollama_prompt = prompt
+                    if db is not None:
+                        few_shot = get_few_shot_examples(db, limit=3)
+                        if few_shot:
+                            ollama_prompt = (
+                                "Exemplos de questões de alta qualidade:\n"
+                                f"{few_shot}\n\n{prompt}"
+                            )
+                    generated = generate_with_ollama(ollama_prompt)
 
     generated = validate_generated_questions(generated)
 
